@@ -1,0 +1,5 @@
+# Ignore R Workspace Data
+*.RData
+
+# Ignore R history files
+*.Rhistory
