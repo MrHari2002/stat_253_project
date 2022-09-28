@@ -70,49 +70,175 @@ library(broom);
 library(ggplot2);
 library(tidymodels);
 tidymodels_prefer();
-# read in data
+
+# Read in data
 music <- read_csv("tcc_ceds_music.csv")
 head(music)
 ```
 
 ```{r}
 # data cleaning
+# View(music)
+music_clean <- select(music, - "...1", -artist_name, -track_name)
 
+head(music_clean)
 ```
 
 ```{r}
-# creation of cv folds
+# set seed
+set.seed(253)
 
+# creation of cv folds
+music_cv <- vfold_cv(data = music_clean, v = 10)
 ```
 
 ```{r}
 # model spec
-
+lm_spec <-
+    linear_reg() %>% 
+    set_engine(engine = 'lm') %>% 
+    set_mode('regression')
+  
+lm_lasso_spec_tune <- 
+  linear_reg() %>%
+  set_args(mixture = 1, penalty = tune()) %>% ## mixture = 1 indicates Lasso
+  set_engine(engine = 'glmnet') %>% #note we are using a different engine
+  set_mode('regression') 
 ```
 
 ```{r}
 # recipes & workflows
+data_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean) %>%
+    step_nzv(all_predictors()) %>% # removes variables with the same value
+    step_corr()
 
+ols_wf <- workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_spec)
+
+lasso_wf_tune <-  workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_lasso_spec_tune)
 ```
 
 ```{r}
 # fit & tune models
+ols_mod <- ols_wf %>% 
+  fit(data = music_clean)
 
+lasso_mod <- lasso_wf_tune %>%
+  fit(data = music_clean)
+
+penalty_grid <- grid_regular(
+  penalty(range = c(-3, 1)), #log10 transformed 
+  levels = 30)
+
+tune_output <- tune_grid( # new function for tuning parameters
+  lasso_wf_tune, # workflow
+  resamples = music_cv, # cv folds
+  metrics = metric_set(rmse, rsq, mae),
+  grid = penalty_grid # penalty grid defined above
+)
 ```
 
 c.
 
 ```{r}
 #  calculate/collect CV metrics
+ols_cv <- fit_resamples(ols_wf,
+  resamples = music_cv, 
+  metrics = metric_set(rmse, rsq, mae)
+) 
 
+ols_cv %>% collect_metrics()
+
+tune_output %>% collect_metrics()
+
+metrics_output <- collect_metrics(tune_output) %>%
+  filter(.metric == 'mae') 
+
+metrics_output %>% ggplot(aes(x = penalty, y = mean)) + 
+  geom_point() + 
+  geom_line() + 
+  labs(x = 'Amount of Regularization', y = 'CV MAE') + 
+  scale_x_log10() +
+  theme_classic()
 ```
 
- 
+```{r}
+best_penalty <- select_best(tune_output, metric = 'mae') # choose penalty value based on lowest cv mae
+best_penalty
+
+best_se_penalty <- select_by_one_std_err(tune_output, metric = 'mae', desc(penalty)) # choose largest penalty value within 1 se of the lowest cv mae
+best_se_penalty
+```
+
+Comparison of the MAE of the models show that the `ols_mod` is the best, because it has the lowest average MAE after 10-fold cross-validation (so there is few to none overfitting). This makes sense, because normally, we would assume that all the different musical features can contribute to the changes that occur in music over years. In other words, all variables are important, which leads to OLS having a lower MAE than LASSO models, since LASSO penalizes the inclusion of these important variables. 
+
 d.
 
 ```{r}
-# visual residuals
+ols_mod_output <- ols_mod %>% 
+    predict(new_data = music_clean) %>%
+    bind_cols(music_clean) %>%
+    mutate(resid = release_date - .pred) #observed - predicted
 
+head(ols_mod_output)
+
+mean(ols_mod_output$.pred)
+sd(ols_mod_output$.pred)
+```
+
+```{r}
+# visual residuals
+# Residuals vs. release_date (outcome variable)
+ggplot(ols_mod_output, aes(x = release_date, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. danceability
+ggplot(ols_mod_output, aes(x = danceability, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. loudness
+ggplot(ols_mod_output, aes(x = loudness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. acousticness
+ggplot(ols_mod_output, aes(x = acousticness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. instrumentalness
+ggplot(ols_mod_output, aes(x = instrumentalness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. valence
+ggplot(ols_mod_output, aes(x = valence, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+# Residuals vs. energy
+ggplot(ols_mod_output, aes(x = energy, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
 ```
 
 e.
