@@ -178,6 +178,8 @@ Comparison of the MAE of the models show that the `ols_mod` is the best, because
 d.
 
 ```{r}
+ols_mod %>% tidy()
+
 ols_mod_output <- ols_mod %>% 
     predict(new_data = music_clean) %>%
     bind_cols(music_clean) %>%
@@ -185,8 +187,20 @@ ols_mod_output <- ols_mod %>%
 
 head(ols_mod_output)
 
-mean(ols_mod_output$.pred)
-sd(ols_mod_output$.pred)
+ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred), min = min(.pred))
+
+# visualize predicted vs. observed data
+ggplot(ols_mod_output, aes(x = .pred)) +
+    geom_density() +
+    geom_vline(aes(xintercept=mean(.pred)),
+            color="red", linetype="dashed", size=1) + 
+    theme_classic()
+
+ggplot(ols_mod_output, aes(x = release_date)) +
+    geom_density() +
+    geom_vline(aes(xintercept=mean(.pred)),
+            color="blue", linetype="dashed", size=1) + 
+    theme_classic()
 ```
 
 ```{r}
