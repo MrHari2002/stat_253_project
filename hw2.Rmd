@@ -288,10 +288,7 @@ ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred
     - Are there any harms that may come from your analyses and/or how the data were collected?
     - What cautions do you want to keep in mind when communicating your work?
 
-- Over-generallizing music trend
-- Diversity, dataset is limited to English songs. 
-- Features data collected depend on a third-party API that doesn't clearly explain how the features are measured, especially valence. https://developer.spotify.com/documentation/web-api/reference/#/operations/get-several-audio-features No access to the underlying formulae and algorithm
-- Cautions: the prediction power, rsq is only 0.37 -> there are definitely trends in musical features, but the accuracy we can get when using those musical features to predict on new data is unreliable and varies a lot.
+One harm we should consider is the possibility of the overgeneralization of music trends. One of our planned research questions is to see if we can predict the year a song was released based on its attributes like valence, danceability, etc. However, this essentially ties a specific year to a specific kind of genre and we do not want to perpetuate any stereotypes such as modern music being more about violence or being negative, etc. We just want to highlight some overall trends and not ignore the fact that at any year, music of many different genres is still made. Another caution we should keep in mind is that this dataset is limited to the Spotify library since these values are from the Spotify API. Our songs are also limited to English songs, so we only see trends for a specific langauge. In addition, the values we are getting from the Spotify API are from AI, so the values have the possibility to be subjective. A caution from our analysis is that with the variables we used we see a trend in the data but the predictive power of our current model is low due to the r^2 value.
 
 
 <br><br><br>
