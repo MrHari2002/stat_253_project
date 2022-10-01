@@ -269,15 +269,19 @@ ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred
 
 2. **Summarize investigations**
     - Decide on an overall best model based on your investigations so far. To do this, make clear your analysis goals. Predictive accuracy? Interpretability? A combination of both?
-
-- OLS is best
-- Analysis goals: see the trend of each musical features across the years. More on predictive accuracy. 
-- P-values: all are very low, so all the null hypothesis are rejected.
-- Prediction range: sd is 11.24 years
-- Predictive accuracy: 12.0784177 years
-- Prediction power: rsq = 0.3701227 - not high, but not too low -> interpret predictors with high absolute value of coefficients
-- Explain the coefficients, especially danceability, loudness, acousticness and valence.
-
+  OLS has been the best model so far. Lasso did not seem to produce much accuracy among the music features. Including the penalty terms for coefficient does not generate yet better result. 
+  We want to see the trend of each musical features across the years. We want to further improve the predictive accuracy. 
+  We have very low p values, so we could reject the null hypothesis.
+  Within the predictions the standard deviation is 11.24 years
+  We have mean  absolute error of 12.0784177 years meaning the average predition error is 12.0784177 from the actual value.
+  Prediction power, or the r squared is 0.3701227 not high, but not too low. This means the predictors explained 37 .01227 % of the variations in the model. 
+  Explain the coefficients, especially danceability, loudness, acousticness and valence.
+  We found out that the dancebility has a coefficent of 31.79 that means when the dancibility equals one the year predictions would add 31.79 year. However no music's dancibility would be 1 but the higher the dancibility the more recent the music is.
+  Loudness has a coefficient of 62.1159212, that means when the loudness increases by one the prediction would increase by 62 years.
+  Acousticness has a coefficient of -14.6899 which means as the acoustiness increases by 1 the year prediction would decrease by 14.6899.
+  Valence has a coefficient of -24.7499699 which means as the valence increases by 1 the year prediction would decrease by 24.74.
+  Based on the finding above we could infer that recent music compared to music that are older are louder,more suitable for dancing, has fewer acoustic components and more negative.
+  
 <br>
 
 3. **Societal impact**
