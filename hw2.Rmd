@@ -19,12 +19,7 @@ knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
 
 Alternatively, you may knit your Rmd directly to PDF if you have LaTeX installed.
 
-
-
 <br><br><br>
-
-
-
 
 ## Project Work {-}
 
@@ -42,28 +37,31 @@ Alternatively, you may knit your Rmd directly to PDF if you have LaTeX installed
 
 <br>
 
+### Research question {-} 
+
+**Data context:**
+
+“Music Dataset: 1950 to 2019,” collected in a research study in 2020 using Spotify’s Python package and other web APIs, is a dataset consisting of basic information and metadata for 28,372 lyrical tracks released from 1950 to 2019. Each row in the dataset represents a track with its name, artist, release year, genre, lyrics, main topic, and normalized metadata. Here, metadata refers to musical features of a track, such as: danceability, loudness, acousticness, instrumentalness, valence, and energy. Besides, the authors also include normalized data for each of the sixteen topics a track can demonstrate, which ultimately determines its main topic. Examples of such topics are: dating, violence, sadness, romantic, etc.
+
+> It would be interesting to find out about general trends in music across decades. Are there any connections between a song’s release year and its musical features? 
+
 ### Required Analyses {-}
 
 1. **Initial investigation: ignoring nonlinearity (for now)**
-    a. Use ordinary least squares (OLS) by using the `lm` engine and LASSO (`glmnet` engine) to build  a series of initial regression models for your quantitative outcome as a function of the predictors of interest. (As part of data cleaning, exclude any variables that you don't want to consider as predictors.)
-        - You'll need two model specifications, `lm_spec` and `lm_lasso_spec` (you'll need to tune this one).
-    b. For each set of variables, you'll need a `recipe` with the `formula`, `data`, and pre-processing steps
-        - You may want to have steps in your recipe that remove variables with near zero variance (`step_nzv()`), remove variables that are highly correlated with other variables (`step_corr()`), normalize all quantitative predictors (`step_normalize(all_numeric_predictors())`) and add indicator variables for any categorical variables (`step_dummy(all_nominal_predictors())`).
-        - These models should not include any transformations to deal with nonlinearity. You'll explore this in the next investigation.
-    c. Estimate the test performance of the models using CV. Report and interpret (with units) the CV metric estimates along with a measure of uncertainty in the estimate (`std_error` is readily available when you used `collect_metrics(summarize=TRUE)`).
-        - Compare estimated test performance across the models. Which models(s) might you prefer?
-    d. Use residual plots to evaluate whether some quantitative predictors might be better modeled with nonlinear relationships.
-    e. Which variables do you think are the most important predictors of your quantitative outcome? Justify your answer. Do the methods you've applied reach consensus on which variables are most important? What insights are expected? Surprising?
-        - Note that if some (but not all) of the indicator terms for a categorical predictor are selected in the final models, the whole predictor should be treated as selected.
 
 <br>
 
 #### Your Work {-}
 
-a & b.
+    a. Use ordinary least squares (OLS) by using the `lm` engine and LASSO (`glmnet` engine) to build  a series of initial regression models for your quantitative outcome as a function of the predictors of interest. (As part of data cleaning, exclude any variables that you don't want to consider as predictors.)
+        - You'll need two model specifications, `lm_spec` and `lm_lasso_spec` (you'll need to tune this one).
+
+    b. For each set of variables, you'll need a `recipe` with the `formula`, `data`, and pre-processing steps
+        - You may want to have steps in your recipe that remove variables with near zero variance (`step_nzv()`), remove variables that are highly correlated with other variables (`step_corr()`), normalize all quantitative predictors (`step_normalize(all_numeric_predictors())`) and add indicator variables for any categorical variables (`step_dummy(all_nominal_predictors())`).
+        - These models should not include any transformations to deal with nonlinearity. You'll explore this in the next investigation.
 
 ```{r}
-# library statements 
+# Library statements 
 library(dplyr);
 library(readr);
 library(broom);
@@ -77,23 +75,22 @@ head(music)
 ```
 
 ```{r}
-# data cleaning
-# View(music)
+# Data cleaning
 music_clean <- select(music, - "...1", -artist_name, -track_name)
 
 head(music_clean)
 ```
 
 ```{r}
-# set seed
+# Set seed
 set.seed(253)
 
-# creation of cv folds
+# Creation of CV folds
 music_cv <- vfold_cv(data = music_clean, v = 10)
 ```
 
 ```{r}
-# model spec
+# Model specs
 lm_spec <-
     linear_reg() %>% 
     set_engine(engine = 'lm') %>% 
@@ -107,7 +104,7 @@ lm_lasso_spec_tune <-
 ```
 
 ```{r}
-# recipes & workflows
+# Recipes & workflows
 data_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean) %>%
     step_nzv(all_predictors()) %>% # removes variables with the same value
     step_corr()
@@ -122,15 +119,12 @@ lasso_wf_tune <-  workflow() %>%
 ```
 
 ```{r}
-# fit & tune models
+# Fit & tune models
+## Fit OLS model
 ols_mod <- ols_wf %>% 
   fit(data = music_clean)
 
-ols_cv <- fit_resamples(ols_wf,
-  resamples = music_cv, 
-  metrics = metric_set(rmse, rsq, mae)
-) 
-
+## Fit & tune LASSO model
 lasso_mod <- lasso_wf_tune %>%
   fit(data = music_clean)
 
@@ -146,13 +140,21 @@ tune_output <- tune_grid( # new function for tuning parameters
 )
 ```
 
-c.
+    c. Estimate the test performance of the models using CV. Report and interpret (with units) the CV metric estimates along with a measure of uncertainty in the estimate (`std_error` is readily available when you used `collect_metrics(summarize=TRUE)`).
+      - Compare estimated test performance across the models. Which models(s) might you prefer?
 
 ```{r}
-#  calculate/collect CV metrics
-ols_cv %>% collect_metrics()
+# Calculate/collect CV metrics
+## OLS model's CV metrics
+ols_cv <- fit_resamples(ols_wf,
+  resamples = music_cv, 
+  metrics = metric_set(rmse, rsq, mae)
+) 
 
-tune_output %>% collect_metrics()
+ols_cv %>% collect_metrics(summarize=TRUE)
+
+## LASSO models CV metrics
+tune_output %>% collect_metrics(summarize=TRUE)
 
 metrics_output <- collect_metrics(tune_output) %>%
   filter(.metric == 'mae') 
@@ -163,9 +165,8 @@ metrics_output %>% ggplot(aes(x = penalty, y = mean)) +
   labs(x = 'Lambda', y = 'CV MAE') + 
   scale_x_log10() +
   theme_classic()
-```
 
-```{r}
+## Best LASSO model's CV MAE
 best_penalty <- select_best(tune_output, metric = 'mae') # choose penalty value based on lowest cv mae
 best_penalty
 
@@ -173,9 +174,11 @@ best_se_penalty <- select_by_one_std_err(tune_output, metric = 'mae', desc(penal
 best_se_penalty
 ```
 
-Comparison of the MAE of the models show that the `ols_mod` is the best, because it has the lowest average MAE after 10-fold cross-validation (so there is few to none overfitting). This makes sense, because normally, we would assume that all the different musical features can contribute to the changes that occur in music over years. In other words, all variables are important, which leads to OLS having a lower MAE than LASSO models, since LASSO penalizes the inclusion of these important variables. 
+MAE results from cross-validation of the OLS model and the best LASSO models (penalty = 0.001, and penalty = 0.1610262) are respectively 12.0784177 &pm; 0.04368178 years, 12.0838520 &pm; 0.043719815 years, and 12.11439 &pm; 0.04423626 years. In the best case scenario (subtracting the standard error from the mean MAE), predictions of these models would be off by 12.03473592 years, 12.040132185 years, and 12.07015374 years respectively. This means that on average, our predictions are about 12 years sooner or later than the real release year, with the OLS model having a slightly closer guess than the best LASSO models. 
 
-d.
+Comparison of the MAE of the models show that the OLS model (`ols_mod`) is the best, because it has the lowest average MAE after 10-fold cross-validation (so there is few to none overfitting). 
+
+    d. Use residual plots to evaluate whether some quantitative predictors might be better modeled with nonlinear relationships.
 
 ```{r}
 ols_mod_output <- ols_mod %>% 
@@ -187,49 +190,49 @@ head(ols_mod_output)
 ```
 
 ```{r}
-# visual residuals
-# Residuals vs. release_date (outcome variable)
+# Visualize residuals
+## Residuals vs. release_date (outcome variable)
 ggplot(ols_mod_output, aes(x = release_date, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") 
 
-# Residuals vs. danceability
+## Residuals vs. danceability
 ggplot(ols_mod_output, aes(x = danceability, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") +
     theme_classic()
 
-# Residuals vs. loudness
+## Residuals vs. loudness
 ggplot(ols_mod_output, aes(x = loudness, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") +
     theme_classic()
 
-# Residuals vs. acousticness
+## Residuals vs. acousticness
 ggplot(ols_mod_output, aes(x = acousticness, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") +
     theme_classic()
 
-# Residuals vs. instrumentalness
+## Residuals vs. instrumentalness
 ggplot(ols_mod_output, aes(x = instrumentalness, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") +
     theme_classic()
 
-# Residuals vs. valence
+## Residuals vs. valence
 ggplot(ols_mod_output, aes(x = valence, y = resid)) +
     geom_point() +
     geom_smooth() +
     geom_hline(yintercept = 0, color = "red") +
     theme_classic()
 
-# Residuals vs. energy
+## Residuals vs. energy
 ggplot(ols_mod_output, aes(x = energy, y = resid)) +
     geom_point() +
     geom_smooth() +
@@ -237,10 +240,9 @@ ggplot(ols_mod_output, aes(x = energy, y = resid)) +
     theme_classic()
 ```
 
-e. Which variables do you think are the most important predictors of your quantitative outcome? Justify your answer. Do the methods you've applied reach consensus on which variables are most important? What insights are expected? Surprising?
-        - Note that if some (but not all) of the indicator terms for a categorical predictor are selected in the final models, the whole predictor should be treated as selected.
+The residual plots against all predictors do not show any clear trend, implying that there is no bias where predictions tend to be underestimated/overestimated at some ranges of the predictors' spectra. If we are to be strict, though, there is a slightly downward trend in the residual plot against `loudness`, which should prompt us to remodel this predictor using some nonlinear relationship.
 
-Our residual plot against predicted outcomes show that our model tends to underpredict the release year of songs from 1988 onward, and overpredict songs before that year. Since this residual plot has a very linear, upward trending pattern while the residual plots against predictors do not show any clear trend, we decided to see what happens by plotting the density plots of predictions and observed outcomes. 
+Besides, our residual plot against predicted outcomes show that our model tends to underestimate the release year of songs from 1988 onward, and overestimate songs before that year. Since this residual plot has a very linear, upward trending pattern while the residual plots against predictors do not show any clear trend, we decided to see what happens by plotting the density plots of predictions and observed outcomes. 
 
 ```{r}
 # visualize predicted vs. observed data
@@ -257,30 +259,42 @@ ggplot(ols_mod_output, aes(x = release_date)) +
     theme_classic()
 ```
 
+It seems that we do not have a very strong prediction power in our model, because with all the predictors included, our model still tends to average out the predictions (shown by a normal distribution in the density plot). This is also quantified by the R-squared of `ols_mod`, which is only 37.01227%. Although it is rather disappointing to have an R-squared this low for the best model, in the context of this dataset and our research question, it makes sense, because musical trends are usually not clear-cut, and there can be a lot of "mix and match" where typical features of one "era" are brought into a later "era". Therefore, variations in songs' release years should not be accounted too much by musical features. 
 
+However, a look into the coefficients of these musical feature variables still tells us many interesting insights. 
+
+    e. Which variables do you think are the most important predictors of your quantitative outcome? Justify your answer. Do the methods you've applied reach consensus on which variables are most important? What insights are expected? Surprising?
+    - Note that if some (but not all) of the indicator terms for a categorical predictor are selected in the final models, the whole predictor should be treated as selected.
 
 ```{r}
+# Show coefficient estimates 
+## OLS model
 ols_mod %>% tidy()
-
 ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred), min = min(.pred))
+
+## LASSO models
+final_wf <- finalize_workflow(lasso_wf_tune, best_penalty) # incorporates penalty value to workflow
+final_fit <- fit(final_wf, data = music_clean)
+
+final_fit %>% tidy()
+
+final_wf_se <- finalize_workflow(lasso_wf_tune, best_se_penalty) # incorporates penalty value to workflow
+final_fit_se <- fit(final_wf_se, data = music_clean)
+tidy(final_fit_se)
 ```
+
+Based on the absolute values of the coefficient estimates, the most important predictors in our model are in order: loudness, danceability, valence, and acousticness. This order of importance is also true for the best LASSO models. 
+
+From the coefficients, we can infer that in general, later songs are more danceable, a lot louder, less acoustic, slightly more instrumental, less positive (valence), and have just a little more energy. The trends of higher danceability and less acousticness are expected, but it is quite surprising that loudness plays such an important role (twice as much as danceability - the second most important predictor) in our model. This could be due to the advancement in audio recording technologies over time, given that [1975 marks the start of the Digital Era](https://en.wikipedia.org/wiki/History_of_sound_recording). 
+
+Another interesting insight is in the considerable, negative coefficient of valence, which is the musical positiveness (happy, cheerful, euphoric vs. sad, depressed, angry) conveyed by a track. Up to nearly 25 years is the estimated difference in release year between the happiest song and the saddest song possible. One plausible explanation for this trend is the rise of musical genres like Emo, Indie, Gothic Metal, Doom Metal, etc. However, this needs a closer look into the `genre` column of our dataset, since the dataset may not include songs of these musical genres or may not represent the total population with regards to these movements. 
 
 <br>
 
 2. **Summarize investigations**
     - Decide on an overall best model based on your investigations so far. To do this, make clear your analysis goals. Predictive accuracy? Interpretability? A combination of both?
-  OLS has been the best model so far. Lasso did not seem to produce much accuracy among the music features. Including the penalty terms for coefficient does not generate yet better result. 
-  We want to see the trend of each musical features across the years. We want to further improve the predictive accuracy. 
-  We have very low p values, so we could reject the null hypothesis.
-  Within the predictions the standard deviation is 11.24 years
-  We have mean  absolute error of 12.0784177 years meaning the average predition error is 12.0784177 from the actual value.
-  Prediction power, or the r squared is 0.3701227 not high, but not too low. This means the predictors explained 37 .01227 % of the variations in the model. 
-  Explain the coefficients, especially danceability, loudness, acousticness and valence.
-  We found out that the dancebility has a coefficent of 31.79 that means when the dancibility equals one the year predictions would add 31.79 year. However no music's dancibility would be 1 but the higher the dancibility the more recent the music is.
-  Loudness has a coefficient of 62.1159212, that means when the loudness increases by one the prediction would increase by 62 years.
-  Acousticness has a coefficient of -14.6899 which means as the acoustiness increases by 1 the year prediction would decrease by 14.6899.
-  Valence has a coefficient of -24.7499699 which means as the valence increases by 1 the year prediction would decrease by 24.74.
-  Based on the finding above we could infer that recent music compared to music that are older are louder,more suitable for dancing, has fewer acoustic components and more negative.
+
+OLS is the overall best model. Among our predictors, `energy` is the only one that seems irrelevant, whose coefficient is shrunk to 0 in LASSO model 17 (penalty = 0.1610262). However, because `energy`'s coefficient in the OLS model is only 0.2156978 years (which means it does not affect the outcome much), and because OLS overall generates slightly more accurate predictions than LASSO, we chose OLS to be our final model. This is for the sake of both predictive accuracy and interpretability of the model output (while LASSO here only excludes one less relevant predictor, interpretation of OLS models are generally much simpler).  
   
 <br>
 
@@ -288,7 +302,6 @@ ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred
     - Are there any harms that may come from your analyses and/or how the data were collected?
     - What cautions do you want to keep in mind when communicating your work?
 
-One harm we should consider is the possibility of the overgeneralization of music trends. One of our planned research questions is to see if we can predict the year a song was released based on its attributes like valence, danceability, etc. However, this essentially ties a specific year to a specific kind of genre and we do not want to perpetuate any stereotypes such as modern music being more about violence or being negative, etc. We just want to highlight some overall trends and not ignore the fact that at any year, music of many different genres is still made. Another caution we should keep in mind is that this dataset is limited to the Spotify library since these values are from the Spotify API. Our songs are also limited to English songs, so we only see trends for a specific langauge. In addition, the values we are getting from the Spotify API are from AI, so the values have the possibility to be subjective. A caution from our analysis is that with the variables we used we see a trend in the data but the predictive power of our current model is low due to the r^2 value.
-
+One harm we should consider is the possibility of the overgeneralization of music trends. One of our planned research questions is to see if we can predict the year a song was released based on its attributes like valence, danceability, etc. However, this essentially ties a specific year to a specific kind of genre and we do not want to perpetuate any stereotypes such as modern music being more about violence or being negative, etc. We just want to highlight some overall trends and not ignore the fact that at any year, music of many different genres is still made. Another caution we should keep in mind is that this dataset is limited to the Spotify library since these values are from the Spotify API. Our songs are also limited to English songs, so we only see trends for a specific language. In addition, the values we are getting from the Spotify API are from AI, so the values have the possibility to be subjective. A caution from our analysis is that with the variables we used we see a trend in the data but the predictive power of our current model is low due to the R-squared value.
 
 <br><br><br>
