@@ -117,6 +117,45 @@ gam_mod_2 %>% pluck('fit') %>% plot()
 ```
 
 ```{r}
+lm_spec <-
+  linear_reg() %>%
+  set_engine(engine = 'lm') %>%
+  set_mode('regression')
+
+data_cv8 <- college_clean %>% 
+    filter(Apps < 30000 && P.Undergrad < 20000) %>% # remove outliers
+    vfold_cv(v = 8)
+
+college_rec <- recipe(Grad.Rate ~ Private + Apps + Top10perc + Top25perc + P.Undergrad + Outstate + Room.Board + Books + Personal + PhD + perc.alumni, data = college_clean)
+
+spline_rec <- college_rec %>%
+    step_ns(Apps, deg_free = 5) %>%
+    step_ns(Top25perc, deg_free = 4) %>% 
+    step_ns(P.Undergrad, deg_free = 4) %>%
+    step_ns(Outstate, deg_free = 6) %>%
+    step_ns(Room.Board, deg_free = 4) %>%
+    step_ns(Personal, deg_free = 4) %>%
+    step_ns(perc.alumni, deg_free = 4)
+
+college_wf <- workflow() %>%
+    add_model(lm_spec) %>%
+    add_recipe(college_rec)
+
+spline_wf <- workflow() %>%
+    add_model(lm_spec) %>%
+    add_recipe(spline_rec)
+
+fit_resamples(
+    college_wf,
+    resamples = data_cv8, # cv folds
+    metrics = metric_set(mae,rmse,rsq)                     
+) %>% collect_metrics()
+
+fit_resamples(
+    spline_wf,
+    resamples = data_cv8, # cv folds
+    metrics = metric_set(mae,rmse,rsq)                     
+) %>% collect_metrics()
 
 ```
 
