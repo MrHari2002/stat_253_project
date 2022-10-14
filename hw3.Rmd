@@ -17,7 +17,7 @@ Alternatively, you may knit your Rmd directly to PDF if you have LaTeX installed
 <br><br><br>
 
 ```{r}
-# Library statements 
+# Library statements
 library(dplyr);
 library(readr);
 library(broom);
@@ -86,6 +86,21 @@ Note: after this process, you might have a set of models (one of which has predi
         - How does test performance of the GAMs compare to other models you explored?
 
     - Don't worry about KNN for now.
+    
+```{r}
+gam_spec <-
+  gen_additive_mod() %>%
+  set_engine(engine = 'mgcv') %>%
+  set_mode('regression')
+
+gam_mod <- fit(gam_spec,
+               release_date ~ s(danceability) + s(loudness) + s(acousticness) + s(instrumentalness) + s(valence) + s(energy),
+               data = music_clean)
+
+par(mfrow=c(2,2))
+gam_mod %>% pluck('fit') %>% mgcv::gam.check()
+```
+    
 
 <br>
 
