@@ -16,6 +16,21 @@ Alternatively, you may knit your Rmd directly to PDF if you have LaTeX installed
 
 <br><br><br>
 
+```{r}
+# Library statements 
+library(dplyr);
+library(readr);
+library(broom);
+library(ggplot2);
+library(tidymodels);
+tidymodels_prefer();
+
+# Read in data
+music <- read_csv("tcc_ceds_music.csv")
+# Clean data
+music_clean <- select(music, - "...1", -artist_name, -track_name)
+head(music_clean)
+```
 
 
 ## Project Work {-}
@@ -40,6 +55,12 @@ Alternatively, you may knit your Rmd directly to PDF if you have LaTeX installed
 1. **Initial investigation: ignoring nonlinearity (for now)**
     a. Use ordinary least squares (OLS) by using the `lm` engine and LASSO (`glmnet` engine) to build  a series of initial regression models for your quantitative outcome as a function of the predictors of interest. (As part of data cleaning, exclude any variables that you don't want to consider as predictors.)
         - You'll need two model specifications, `lm_spec` and `lm_lasso_spec` (you'll need to tune this one).
+        
+```{r}
+
+```
+        
+        
     b. For each set of variables, you'll need a `recipe` with the `formula`, `data`, and pre-processing steps
         - You may want to have steps in your recipe that remove variables with near zero variance (`step_nzv()`), remove variables that are highly correlated with other variables (`step_corr()`), normalize all quantitative predictors (`step_normalize(all_numeric_predictors())`) and add indicator variables for any categorical variables (`step_dummy(all_nominal_predictors())`).
         - These models should not include any transformations to deal with nonlinearity. You'll explore this in the next investigation.
