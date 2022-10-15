@@ -82,10 +82,17 @@ Note: after this process, you might have a set of models (one of which has predi
         - To determine number of knots (`deg_free`), I recommend fitting a smoothing spline and use `edf` to inform your choice.
 
     - Compare insights from variable importance analyses here and the corresponding results from the Investigation 1. Now after having accounted for nonlinearity, have the most relevant predictors changed?
+        
+        For our OLM model, the significant values were ranked loudness, danceability, valence, acousticness, instrumentalness, energy. We don't know what they are ranked for our spline model, but they're all listed as significant.
+        
         - Do you gain any insights from the GAM output plots (easily obtained from fitting smoothing splines) for each predictor?
+        
+        We can see that there are predictors that are more nonlinear than other terms and would benefit more from splines. We specifically noticed that danceability and valence looked very linear compared to other terms like loudness, and we fit a GAM model with those two as linear terms and our results between them did not change much.
         
     - Compare model performance between your GAM models that the models that assuming linearity.
         - How does test performance of the GAMs compare to other models you explored?
+        
+        After making our GAMs, we noticed that our mae and rmse lowered slightly and our r-squared increase slightly, meaning our predictive performance informed when using splines.
 
     - Don't worry about KNN for now.
     
@@ -122,38 +129,35 @@ lm_spec <-
   set_engine(engine = 'lm') %>%
   set_mode('regression')
 
-data_cv8 <- college_clean %>% 
-    filter(Apps < 30000 && P.Undergrad < 20000) %>% # remove outliers
-    vfold_cv(v = 8)
+music_cv <- vfold_cv(data = music_clean, v = 10)
 
-college_rec <- recipe(Grad.Rate ~ Private + Apps + Top10perc + Top25perc + P.Undergrad + Outstate + Room.Board + Books + Personal + PhD + perc.alumni, data = college_clean)
+music_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean)
 
-spline_rec <- college_rec %>%
-    step_ns(Apps, deg_free = 5) %>%
-    step_ns(Top25perc, deg_free = 4) %>% 
-    step_ns(P.Undergrad, deg_free = 4) %>%
-    step_ns(Outstate, deg_free = 6) %>%
-    step_ns(Room.Board, deg_free = 4) %>%
-    step_ns(Personal, deg_free = 4) %>%
-    step_ns(perc.alumni, deg_free = 4)
+spline_rec <- music_rec %>%
+    step_ns(loudness, deg_free = 8) %>%
+    step_ns(acousticness, deg_free = 8) %>% 
+    step_ns(instrumentalness, deg_free = 7) %>%
+    step_ns(energy, deg_free = 7) %>%
+    step_ns(danceability, deg_free = 5) %>%
+    step_ns(valence, deg_free = 5)
 
-college_wf <- workflow() %>%
+music_wf <- workflow() %>%
     add_model(lm_spec) %>%
-    add_recipe(college_rec)
+    add_recipe(music_rec)
 
 spline_wf <- workflow() %>%
     add_model(lm_spec) %>%
     add_recipe(spline_rec)
 
 fit_resamples(
-    college_wf,
-    resamples = data_cv8, # cv folds
+    music_wf,
+    resamples = music_cv, # cv folds
     metrics = metric_set(mae,rmse,rsq)                     
 ) %>% collect_metrics()
 
 fit_resamples(
     spline_wf,
-    resamples = data_cv8, # cv folds
+    resamples = music_cv, # cv folds
     metrics = metric_set(mae,rmse,rsq)                     
 ) %>% collect_metrics()
 
@@ -164,6 +168,8 @@ fit_resamples(
 
 3. **Summarize investigations**
     - Decide on an overall best model based on your investigations so far. To do this, make clear your analysis goals. Predictive accuracy? Interpretability? A combination of both?
+
+Based on our investigations so far, we decided the spline model is the best model we used so far since it has lower RMSE/MAE and higher r-squared. Our current analysis goal is to use the metrics gained from Spotify's machine learning algorithm in order to predict the release year of a song (metrics such as danceability, loudness, etc). As a result, we are aiming more for predictive accuracy, which the spline models gives us more of. The spline model remains interpretable but its interpretability is also harder than the OLS/LASSO models because it is a lot harder to see which variables are more significant than others when all the p-values are too small for R to give us exact values.
 
 <br>
 
