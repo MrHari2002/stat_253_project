@@ -30,6 +30,8 @@ music <- read_csv("tcc_ceds_music.csv")
 # Clean data
 music_clean <- select(music, - "...1", -artist_name, -track_name)
 head(music_clean)
+
+set.seed(253)
 ```
 
 
@@ -98,9 +100,24 @@ gam_mod <- fit(gam_spec,
                data = music_clean)
 
 par(mfrow=c(2,2))
-gam_mod %>% pluck('fit') %>% mgcv::gam.check()
+
+gam_mod %>% pluck('fit') %>% summary()
+
+gam_mod %>% pluck('fit') %>% plot( all.terms = TRUE, pages = 1)
 ```
-    
+```{r}
+gam_mod_2 <- fit(gam_spec,
+               release_date ~ danceability + s(loudness) + s(acousticness) + s(instrumentalness) + valence + s(energy),
+               data = music_clean)
+
+gam_mod_2 %>% pluck('fit') %>% summary()
+
+gam_mod_2 %>% pluck('fit') %>% plot()
+```
+```{r}
+
+```
+
 
 <br>
 
