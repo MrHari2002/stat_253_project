@@ -36,15 +36,16 @@ tidymodels_prefer();
 # Read in data
 music <- read_csv("tcc_ceds_music.csv")
 # Clean data
-music <- select(music, - "...1", -artist_name, -track_name) %>% 
+music_clean <- select(music, genre, danceability, loudness, acousticness, instrumentalness, valence, energy) %>%
   mutate(genre = factor(genre))
-head(music)
+
+head(music_clean)
 
 set.seed(253)
 ```
 
 ```{r}
-genre_count <- music %>% group_by(genre) %>% 
+genre_count <- music_clean %>% group_by(genre) %>% 
   summarise(n = n()) %>% mutate(freq=n/sum(n)) %>% arrange(-freq)
 genre_count
 ```
@@ -55,52 +56,12 @@ Because our outcome variable has 7 possible values, we cannot use logistic regre
 
 However, we note that since all our predictors - danceability, loudness, acousticness, instrumentalness, valence, and energy, are all numerical, it will be highly computationally intensive to perform random forest because there are so many possible splits to consider. And although KNN generally has low computational time because of its lazy learning approach, when paired with cross-validation and tune for the best K, it can be computationally heavy as well. 
 
-Considering the size of our dataset and the number of outcome categories, let's see if we can make general answers to the research questions by averaging the features' score of the genres, so that we can omit certain categories and reduce the size of our dataset:
-
-```{r}
-avg_features <- music %>%
-  group_by(genre) %>% 
-  summarize(avg_danceability=mean(danceability), avg_loudness=mean(loudness), avg_acousticness=mean(acousticness), avg_instrumentalness=mean(instrumentalness), avg_valence=mean(valence), avg_energy=mean(energy))
-
-avg_features
-
-avg_features %>% summarise_if(is.numeric, var)
-music %>% summarise(var)
-```
-
-From the average scores above, there are several observations:
-  - **Hip hop** and **reggae** are much more `danceable` than other genres. This makes sense, because these 2 genres are commonly known as "dance music".
-  - `Loudness` does not differ much among the genres.
-  - **Hip hop**, **reggae**, and possibly **rock** are generally much less `acoustic`.
-  - **Jazz** can very much be singled out by its high `instrumentalness` (~less vocal) which is distinct from other genres.
-  - Again, **hip hop** and **reggae** score the highest on `valence`, although not as evident as with danceability.
-  - **Hip hop** and **rock** score the highest on `energy`.
-  
-Notice how hip hop is distinct from other genres in up to 4 features, and reggae is distinct from other genres in up to 3 features. For these 2 genres, the answer to our research questions of identifying them through their musical features is right there without a need for a model. For example, a track with high danceability, high valance, high energy and low acousticness very likely belongs to the hip hop genre. Similarly, a track with high dancebility, high valance and low acousticness is likely to be a reggae track. If we want to differentiate these two genres, we can build a model specifically for them, or make a hard prediction based on the test track's `energy`. 
-
-Instead, we want to use computational power to solve more unobvious questions: identify genres that are more similar to each other - how accurate can our predictions be? Besides, because these 2 genres have the least frequency, excluding them will not reduce our dataset size by too much. Meanwhile, including them will potentially lead to bias towards danceability, acousticness and energy in terms of variable importance.
-
-Therefore, we will not consider hip hop and reggae in our modeling process.
-
-```{r}
-music_clean <- music %>%
-  filter(genre != 'hip hop' & genre != 'reggae') 
-
-music_clean %>% group_by(genre) %>% 
-  summarise(n = n()) %>% mutate(freq=n/sum(n)) %>% arrange(-freq)
-
-music_clean %>%
-  group_by(genre) %>% 
-  summarize(avg_danceability=mean(danceability), avg_acousticness=mean(acousticness), avg_instrumentalness=mean(instrumentalness), avg_valence=mean(valence), avg_energy=mean(energy))
-```
-
-The genres are much more similar. 
 
 ## Methods {-}
 
 ### Random Forest {-}
 
-For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with min_n of 2 (so all the leaf nodes will have at least 2 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 7 predictors, we will test out every possible `mtry` except `mtry`= 1 which theoretically leads to very high bias, and `mtry`= 7 which leads to very high variance and diminishes the purpose of random forests.
+For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with min_n of 10 (so all the leaf nodes will have at most 10 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 6 predictors, we will test out every possible `mtry` and see which one has the best overall accuracy.
 
 ```{r}
 # Model Specification
@@ -118,6 +79,10 @@ data_rec <- recipe(genre ~ danceability+acousticness+loudness+instrumentalness+v
 
 # Workflows
 ## Create workflows for mtry = 2, 3, 4, 5, and 6
+data_wf_mtry1 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 1)) %>%
+  add_recipe(data_rec)
+
 data_wf_mtry2 <- workflow() %>%
   add_model(rf_spec %>% set_args(mtry = 2)) %>%
   add_recipe(data_rec)
@@ -137,16 +102,18 @@ data_wf_mtry5 <- workflow() %>%
 data_wf_mtry6 <- workflow() %>%
   add_model(rf_spec %>% set_args(mtry = 6)) %>% 
   add_recipe(data_rec)
-
 ```
 
 ```{r}
 # Fit Models
 # Fit models for mtry = 2, 3, 4, 5, and 6
 set.seed(253) # make sure to run this before each fit so that you have the same 1000 trees
+data_fit_mtry1 <- fit(data_wf_mtry1, data = music_clean)
+
+set.seed(253)
 data_fit_mtry2 <- fit(data_wf_mtry2, data = music_clean)
 
-set.seed(253) # make sure to run this before each fit so that you have the same 1000 trees
+set.seed(253)
 data_fit_mtry3 <- fit(data_wf_mtry3, data = music_clean)
 
 set.seed(253) 
@@ -170,11 +137,11 @@ rf_OOB_output <- function(fit_model, model_label, truth){
 }
 
 #check out the function output
-rf_OOB_output(data_fit_mtry2,2, music_clean %>% pull(genre))
-
+rf_OOB_output(data_fit_mtry1,1, music_clean %>% pull(genre))
 ```
 ```{r}
 data_rf_OOB_output <- bind_rows(
+    rf_OOB_output(data_fit_mtry1,1, music_clean %>% pull(genre)),
     rf_OOB_output(data_fit_mtry2,2, music_clean %>% pull(genre)),
     rf_OOB_output(data_fit_mtry3,3, music_clean %>% pull(genre)),
     rf_OOB_output(data_fit_mtry4,4, music_clean %>% pull(genre)),
@@ -201,58 +168,62 @@ ggplot(accuracys,aes(x= label,y=.estimate)) +
   theme_classic()
 ```
 
-U-shape 
+As it turns out, `data_fit_mtry5` gives us the best overall accuracy estimate. This accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
+
+Considering the bias-variance tradeoff, although `mtry`=1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. To know the reason why this may be the fact, we take a look at the variable importance:
 
 ```{r}
-library(vip)
-
-model_output <-data_fit_mtry2 %>% 
+# Impurity approach
+impurity_output1 <-data_fit_mtry1 %>% 
     extract_fit_engine() 
 
-model_output %>% 
+impurity_output1 %>% 
     vip(num_features = 30) + theme_classic() #based on impurity
 
-model_output %>% vip::vi() %>% head()
+impurity_output1 %>% vip::vi() %>% head()
+impurity_output1 %>% vip::vi() %>% tail()
 ```
+
+
 ```{r}
-model_output2 <- data_wf_mtry2 %>% 
+permutation_output1 <- data_wf_mtry1 %>% 
   update_model(rf_spec %>% set_args(importance = "permutation")) %>% #based on permutation
   fit(data = music_clean) %>% 
     extract_fit_engine() 
 
-model_output2 %>% 
+permutation_output1 %>% 
     vip(num_features = 30) + theme_classic()
 
 
-model_output2 %>% vip::vi() %>% head()
+permutation_output1 %>% vip::vi() %>% head()
 ```
+
 ```{r}
-ggplot(music_clean, aes(x = genre, y = acousticness)) + #3
-    geom_violin() + theme_classic()
 ggplot(music_clean, aes(x = genre, y = danceability)) + #4
     geom_violin() + theme_classic()
 ggplot(music_clean, aes(x = genre, y = energy)) + #2
     geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = loudness)) + #5
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = valence)) + #6
+ggplot(music_clean, aes(x = genre, y = acousticness)) + #3
     geom_violin() + theme_classic()
 ggplot(music_clean, aes(x = genre, y = instrumentalness)) + #1
     geom_violin() + theme_classic()
-
-ggplot(music_clean2, aes(x = genre, y = acousticness)) + #3
+ggplot(music_clean, aes(x = genre, y = valence)) + #6
     geom_violin() + theme_classic()
-ggplot(music_clean2, aes(x = genre, y = danceability)) + #4
-    geom_violin() + theme_classic()
-ggplot(music_clean2, aes(x = genre, y = energy)) + #2
-    geom_violin() + theme_classic()
-ggplot(music_clean2, aes(x = genre, y = loudness)) + #5
-    geom_violin() + theme_classic()
-ggplot(music_clean2, aes(x = genre, y = valence)) + #6
-    geom_violin() + theme_classic()
-ggplot(music_clean2, aes(x = genre, y = instrumentalness)) + #1
+ggplot(music_clean, aes(x = genre, y = loudness)) + #5
     geom_violin() + theme_classic()
 ```
+```{r}
+avg_features <- music_clean %>%
+  group_by(genre) %>% 
+  summarize(avg_danceability=mean(danceability), avg_loudness=mean(loudness), avg_acousticness=mean(acousticness), avg_instrumentalness=mean(instrumentalness), avg_valence=mean(valence), avg_energy=mean(energy))
+
+avg_features
+
+avg_features %>% summarise_if(is.numeric, var) %>% gather() %>% arrange(-value)
+```
+
+
+### K-nearest Neighbors {-}
 
 ```{r}
 # CV Folds
