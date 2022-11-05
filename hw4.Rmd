@@ -270,7 +270,7 @@ knn_fit_cv %>%
 
 Describe the goals / purpose of the methods used in the overall context of your research investigations.
 
-Classification - Results
+## Classification - Results
 
 Summarize your final model and justify your model choice (see below for ways to justify your choice).
 
@@ -278,4 +278,8 @@ Compare the different classification models tried in light of evaluation metrics
 Display evaluation metrics for different models in a clean, organized way. This display should include both the estimated metric as well as its standard deviation. (This won’t be available from OOB error estimation. If using OOB, don’t worry about reporting the SD.)
 Broadly summarize conclusions from looking at these evaluation metrics and their measures of uncertainty.
 
-Classification - Conclusions - Interpret evaluation metric(s) for the final model in context. Does the model show an acceptable amount of error? - If using OOB error estimation, display the test (OOB) confusion matrix, and use it to interpret the strengths and weaknesses of the final model. - Summarization should show evidence of acknowledging the data context in thinking about the sensibility of these results.
+## Classification - Conclusions
+
+Interpret evaluation metric(s) for the final model in context. Does the model show an acceptable amount of error? - If using OOB error estimation, display the test (OOB) confusion matrix, and use it to interpret the strengths and weaknesses of the final model. - Summarization should show evidence of acknowledging the data context in thinking about the sensibility of these results.
+
+The evaluation metric we got for the final model was 40.624% accuracy with a random forest of mtry 2. This means that using our model, we were able to predict the correct genre given our metrics about 40.6% of the time. According to our random forest model, the most important variable was ____shown by _____. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. Our non-information rate for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 40.6% is 1.64 times more accurate than the non-information rate meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50% meaning the model would be wrong more times than it is correct.
