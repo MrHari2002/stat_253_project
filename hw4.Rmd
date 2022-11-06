@@ -168,9 +168,11 @@ ggplot(accuracys,aes(x= label,y=.estimate)) +
   theme_classic()
 ```
 
-As it turns out, `data_fit_mtry5` gives us the best overall accuracy estimate. This accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
+As it turns out, `data_fit_mtry1` gives us the best overall accuracy estimate. This accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
 
-Considering the bias-variance tradeoff, although `mtry`=1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. To know the reason why this may be the fact, we take a look at the variable importance:
+Considering the bias-variance tradeoff, although `mtry`=1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. This may be due to the fact that `data_fit_mtry1` was able to include splits on "weaker" variables that normally would not "win" in any splits. Thus, `data_fit_mtry1` has more chance to explore the globally best combination of splits, rather than locally best ones that prioritize strong variables or variables that are more correlated with the previously chosen one. 
+
+To know the reason why this may be the fact, we take a look at the variable importance:
 
 ```{r}
 # Impurity approach
@@ -186,6 +188,7 @@ impurity_output1 %>% vip::vi() %>% tail()
 
 
 ```{r}
+# Permutation approach
 permutation_output1 <- data_wf_mtry1 %>% 
   update_model(rf_spec %>% set_args(importance = "permutation")) %>% #based on permutation
   fit(data = music_clean) %>% 
@@ -198,30 +201,42 @@ permutation_output1 %>%
 permutation_output1 %>% vip::vi() %>% head()
 ```
 
-```{r}
-ggplot(music_clean, aes(x = genre, y = danceability)) + #4
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = energy)) + #2
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = acousticness)) + #3
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = instrumentalness)) + #1
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = valence)) + #6
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = loudness)) + #5
-    geom_violin() + theme_classic()
-```
-```{r}
-avg_features <- music_clean %>%
-  group_by(genre) %>% 
-  summarize(avg_danceability=mean(danceability), avg_loudness=mean(loudness), avg_acousticness=mean(acousticness), avg_instrumentalness=mean(instrumentalness), avg_valence=mean(valence), avg_energy=mean(energy))
+Both measurements agree on the the rank of `danceability` (most important) and `valence` (5th rank), but swap the 2nd vs. 3rd ranks and 4th vs. 6th ranks. Impurity ranks `acousticness` higher than `energy`, and `instrumentalness` higher than `loudness`.
 
-avg_features
+However, we know that the impurity measure tends to favor predictors with a lot of unique values, because with many unique values, there are many more possible splits, thus making it easier to find an optimal split that makes a big improvement in purity. Therefore, we believe that the result from the permutation approach is more reliable. 
 
-avg_features %>% summarise_if(is.numeric, var) %>% gather() %>% arrange(-value)
+To find out whether this is actually the case, we will take a look at the number of unique values of these predictors: 
+
+```{r}
+# Count the number of unique values of each predictor
+music_clean %>% select(energy, acousticness, instrumentalness, loudness) %>%
+  sapply(function (x) n_distinct(x))
 ```
 
+As it turns out, impurity may have actually favored predictors with more unique values - `acousticness` has ~3 times more unique values than `energy`, and `loudness` also has ~3 times more unique values than `instrumentalness`. Therefore, the variable importance rankings of permutation is more likely to be accurate.
+
+We can also check the violin plots of all predictors to verify the result of permutation:
+
+```{r}
+# Violin plots of the predictors, in order of importance according to permutation measurement
+ggplot(music_clean, aes(x = genre, y = danceability)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = energy)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = acousticness)) + 
+    geom_violin() + theme_classic()
+
+ggplot(music_clean, aes(x = genre, y = instrumentalness)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = valence)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = loudness)) + 
+    geom_violin() + theme_classic()
+```
+
+The rankings make sense considering how each predictor can single out certain genres.
+
+Next, we will use an alternative model type to answer our research questions.
 
 ### K-nearest Neighbors {-}
 
@@ -267,8 +282,6 @@ knn_fit_cv %>%
   select_by_one_std_err(metric = 'accuracy', desc(neighbors))  # Choose neighbors value that leads to the highest neighbors within 1 se of the lowest CV MAE
 ```
 
-
-Describe the goals / purpose of the methods used in the overall context of your research investigations.
 
 Classification - Results
 
