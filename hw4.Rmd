@@ -32,6 +32,7 @@ library(broom);
 library(ggplot2);
 library(tidymodels);
 library(vip);
+library(kknn)
 tidymodels_prefer();
 
 # Read in data
@@ -53,7 +54,7 @@ genre_count
 
 There are 7 genres in our dataset: blues, country, hip hop, jazz, pop, reggae, and rock. Pop has the largest frequency among all 7 genres at 24.8%; hip hop has the lowest frequency at 3.1%, and reggae has the second lowest frequency at 8.8%.
 
-Because our outcome variable has 7 possible values, we cannot use logistic regression which is used for binary classification. Hence, we will be answering our research question using random forest and K-nearest neighbors. 
+Because our outcome variable has 7 possible values, we cannot use logistic regression, which is used for binary classification. Hence, we will be answering our research question using random forest and K-nearest neighbors. 
 
 However, we note that since all our predictors - danceability, loudness, acousticness, instrumentalness, valence, and energy, are all numerical, it will be highly computationally intensive to perform random forest because there are so many possible splits to consider. And although KNN generally has low computational time because of its lazy learning approach, when paired with cross-validation and tune for the best K, it can be computationally heavy as well. 
 
@@ -62,7 +63,9 @@ However, we note that since all our predictors - danceability, loudness, acousti
 
 ### Random Forest {-}
 
-For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with min_n of 10 (so all the leaf nodes will have at most 10 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 6 predictors, we will test out every possible `mtry` and see which one has the best overall accuracy.
+#### Fitting Models {-}
+
+For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with `min_n` of 2 (so all the leaf nodes will have at most 10 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 6 predictors, we will test out every possible `mtry` and see which one has the best overall accuracy.
 
 ```{r}
 # Model Specification
@@ -70,7 +73,7 @@ rf_spec <- rand_forest() %>%
   set_engine(engine = 'ranger') %>% 
   set_args(mtry = NULL, # size of random subset of variables; default is floor(sqrt(number of total predictors))
            trees = 1000, # Number of trees
-           min_n = 2,
+           min_n = 40,
            probability = FALSE, # FALSE: get hard predictions (not needed for regression)
            importance = 'impurity') %>% # we'll come back to this at the end
   set_mode('classification') 
@@ -127,6 +130,8 @@ set.seed(253)
 data_fit_mtry6 <- fit(data_wf_mtry6, data = music_clean)
 ```
 
+#### Evaluation {-}
+
 ```{r}
 # Custom Function to get OOB predictions, true observed outcomes and add a user-provided model label
 rf_OOB_output <- function(fit_model, model_label, truth){
@@ -153,11 +158,11 @@ data_rf_OOB_output <- bind_rows(
     rf_OOB_output(data_fit_mtry6,6, music_clean %>% pull(genre))
 )
 
-
 data_rf_OOB_output %>% 
     group_by(label) %>%
     accuracy(truth = class, estimate = .pred_class)
 ```
+
 
 ```{r}
 labels <- data_rf_OOB_output %>% 
@@ -172,37 +177,119 @@ ggplot(accuracys,aes(x= label,y=.estimate)) +
   theme_classic()
 ```
 
-As it turns out, `data_fit_mtry1` gives us the best overall accuracy estimate. This accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
+As it turns out, `data_fit_mtry1` gives us the best overall accuracy estimate, that is, 38.6%. Accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
 
 Considering the bias-variance tradeoff, although `mtry`=1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. This may be due to the fact that `data_fit_mtry1` was able to include splits on "weaker" variables that normally would not "win" in any splits. Thus, `data_fit_mtry1` has more chance to explore the globally best combination of splits, rather than locally best ones that prioritize strong variables or variables that are more correlated with the previously chosen one. 
 
-To know the reason why this may be the fact, we take a look at the variable importance:
+However, there is another tuning parameter we should consider - `min_n`, the minimum number of cases in a node to consider splitting. Since `data_fit_mtry2`'s accuracy is very close to that of `data_fit_mtry1`, we will tune for the best `min_n` on both of these values of `mtry`. It is possible that with a different value of `min_n`, `mtry`=2 is actually the best one.
+
+#### Tuning for the best min_n {-}
 
 ```{r}
-# Impurity approach
-impurity_output1 <-data_fit_mtry1 %>% 
-    extract_fit_engine() 
+# Model Specification
+mtry1_spec <- rand_forest() %>%
+  set_engine(engine = 'ranger') %>% 
+  set_args(mtry = 1, # size of random subset of variables
+           trees = 1000, # Number of trees
+           min_n = NULL, # tuning parameter is min_n; tuning spec
+           probability = FALSE, # FALSE: get hard predictions (not needed for regression)
+           importance = 'impurity') %>% # we'll come back to this at the end
+  set_mode('classification') 
 
-impurity_output1 %>% 
-    vip(num_features = 30) + theme_classic() #based on impurity
+mtry2_spec <- rand_forest() %>%
+  set_engine(engine = 'ranger') %>% 
+  set_args(mtry = 2, # size of random subset of variables
+           trees = 1000, # Number of trees
+           min_n = NULL, # tuning parameter is min_n; tuning spec
+           probability = FALSE, # FALSE: get hard predictions (not needed for regression)
+           importance = 'impurity') %>% # we'll come back to this at the end
+  set_mode('classification') 
 
-impurity_output1 %>% vip::vi() %>% head()
-impurity_output1 %>% vip::vi() %>% tail()
+# min_n values
+min_ns <- seq(5, 100, 5) # 20 values of min_n, from 5 to 100 with step of 5
+
+# Custom function to get OOB result of a random forest model with custom tuning min_n
+OOB_output <- function(model_spec, min_ns) {
+  mtry_OOB_output <- bind_rows()
+  for (min_n in min_ns) {
+    # Workflow (Recipe + Model)
+    main_wf <- workflow() %>% 
+      add_model(model_spec %>% set_args(min_n = min_n)) %>%
+      add_recipe(data_rec)
+    
+    set.seed(253)
+    fit_model <- fit(main_wf, data = music_clean)
+    mtry_OOB_output <- bind_rows(mtry_OOB_output, 
+                                 rf_OOB_output(fit_model, min_n, music_clean %>% pull(genre)))
+  }
+  return (mtry_OOB_output %>% 
+            group_by(label) %>% 
+            accuracy(truth = class, estimate = .pred_class))
+}
+
+# Result
+mtry1_result <- OOB_output(mtry1_spec, min_ns)
+mtry2_result <- OOB_output(mtry2_spec, min_ns)
 ```
 
 
 ```{r}
+# Bind mtry column
+mtry1_result$mtry <- rep_len(1, length(min_ns))
+mtry2_result$mtry <- rep_len(2, length(min_ns))
+
+accuracys <- bind_rows(mtry1_result, mtry2_result)
+
+# Visualize how the accuracies of mtry1 and mtry2 change across different min_n's 
+ggplot(accuracys,aes(x=label, y=.estimate, group=mtry, color=factor(mtry))) +
+  geom_point() +
+  geom_line() +
+  xlab("min_n") + ylab("Accuracy estimate") +
+  theme_classic()
+
+# Show the random forest model with the best overall accuracy
+accuracys %>% slice_max(.estimate)
+```
+
+As seen from the graph, at about `min_n`=30, the OOB accuracy of the `mtry2` model starts to get higher than that of the `mtry1` model. The highest accuracy we can get is 39.55%, which is from a random forest with `mtry`=2 and `min_n`=70. We can also try highest values of `mtry`, but based on the little difference in accuracy among different `mtry`'s at the same `min_n` as we've seen above, we do not expect a drastic increase in accuracy even if there is. Plus, as discussed above, picking higher `mtry` (3, 4, 5 and 6) may actually hurt our chance of building trees that include the globally best combinations of splits, given how few predictors we have. 
+
+Therefore, we will move forward to examining variable importance with the best random forest model we have concluded.
+
+#### Variable Importance {-}
+
+```{r}
+# Finalize the best random forest model
+best_rf_wf <- workflow() %>%
+  add_model(mtry2_spec %>% set_args(min_n = 70)) %>% # choose the best mtry and the best min_n
+  add_recipe(data_rec)
+
+best_rf_fit <- fit(best_rf_wf, data = music_clean)
+```
+
+```{r}
+# Impurity approach
+impurity_output <- best_rf_fit %>% 
+    extract_fit_engine() 
+
+impurity_output %>% 
+    vip(num_features = 30) + theme_classic() #based on impurity
+
+impurity_output %>% vip::vi() %>% head()
+impurity_output %>% vip::vi() %>% tail()
+```
+
+```{r}
 # Permutation approach
-permutation_output1 <- data_wf_mtry1 %>% 
+permutation_output <- best_rf_fit %>% 
   update_model(rf_spec %>% set_args(importance = "permutation")) %>% #based on permutation
   fit(data = music_clean) %>% 
     extract_fit_engine() 
 
-permutation_output1 %>% 
+permutation_output %>% 
     vip(num_features = 30) + theme_classic()
 
 
-permutation_output1 %>% vip::vi() %>% head()
+permutation_output %>% vip::vi() %>% head()
 ```
 
 Both measurements agree on the the rank of `danceability` (most important) and `valence` (5th rank), but swap the 2nd vs. 3rd ranks and 4th vs. 6th ranks. Impurity ranks `acousticness` higher than `energy`, and `instrumentalness` higher than `loudness`.
@@ -222,7 +309,7 @@ As it turns out, impurity may have actually favored predictors with more unique 
 We can also check the violin plots of all predictors to verify the result of permutation:
 
 ```{r}
-# Violin plots of the predictors, in order of importance according to permutation measurement
+# Violin plots of the predictors, in the order of permutation measurement
 ggplot(music_clean, aes(x = genre, y = danceability)) + 
     geom_violin() + theme_classic()
 ggplot(music_clean, aes(x = genre, y = energy)) + 
@@ -238,11 +325,16 @@ ggplot(music_clean, aes(x = genre, y = loudness)) +
     geom_violin() + theme_classic()
 ```
 
-The rankings make sense considering how each predictor can single out certain genres.
+The rankings make sense considering how each predictor can single out certain genres. Overall, the order of variable importance that may be most realistic is danceability, energy, acousticness, instrumentalness, valence, and loudness.
 
 Next, we will use an alternative model type to answer our research questions.
 
+
 ### K-nearest Neighbors {-}
+
+#### Fitting Models {-}
+
+To find the best K - the number of neighbors, we will start with a tuning grid of 50 values of K from 1 to 500. We will also use cross validation to avoid overfitting and get the true test error.
 
 ```{r}
 # CV Folds
@@ -266,7 +358,7 @@ knn_wf <- workflow() %>%
 
 # Tune model trying a variety of values for neighbors (using 10-fold CV)
 penalty_grid <- grid_regular(
-  neighbors(range = c(1, 50)), #  min and max of values for neighbors
+  neighbors(range = c(1, 500)), #  min and max of values for neighbors
   levels = 50) # number of neighbors values
 
 knn_fit_cv <- tune_grid(knn_wf, # workflow
@@ -274,6 +366,8 @@ knn_fit_cv <- tune_grid(knn_wf, # workflow
               grid = penalty_grid, # grid specified above
               metrics = metric_set(accuracy))
 ```
+
+#### Evaluation {-}
 
 ```{r}
 knn_fit_cv %>% autoplot()
@@ -286,10 +380,55 @@ knn_fit_cv %>%
   select_by_one_std_err(metric = 'accuracy', desc(neighbors))  # Choose neighbors value that leads to the highest neighbors within 1 se of the lowest CV MAE
 ```
 
+The best KNN model includes 153 neighbors, and has an overall test accuracy of 37.43% with a standard error of 0.26%. If we want to decrease variance, then the model with the highest number of neighbors within 1 standard error of the lowest cross-validated MAE is the one with 459 neighbors, which gives an overall test accuracy of 37.17% with a standard error of 0.22%. As seen from the graph, accuracy will tend to go down, or not pass the threshold of 37.5% if we keep increasing the number of neighbors. Therefore, we believe the best KNN model (out of all possible KNN models) has less accuracy than the best random forest model (39.55%).
+
+The graph and result shows that accuracy gets better as we increase K. However, even with 99 neighbors, KNN still cannot beat random forest in accuracy - it only gets up to 37.41%.
+
+#### Variable Importance {-}
+
+```{r}
+# Variable importance
+orig_accuracy <- 0.3743129
+
+spec_wo_var <- nearest_neighbor(neighbors=153) %>% # new type of model!
+  set_engine(engine = 'kknn') %>% # new engine
+  set_mode('classification') 
+
+calculate_var_importance <- function(var) {
+  new_data <- music_clean %>% select(-var)                                                          
+  rec_wo_var <- recipe(genre ~ ., data = new_data)
+  
+  # Workflow (Recipe + Model)
+  wf_wo_var <- workflow() %>%
+    add_model(spec_wo_var) %>% 
+    add_recipe(rec_wo_var)
+  
+  knn_mod_wo_var <- fit_resamples(wf_wo_var,
+    resamples = data_cv10, 
+    metrics = metric_set(yardstick::accuracy))
+
+  accuracy_wo_var <- knn_mod_wo_var %>% collect_metrics()
+  return (c(var, orig_accuracy - accuracy_wo_var %>% pull(mean)))
+}
+
+result <- data.frame(matrix(ncol=2,nrow=6, dimnames=list(NULL, c("variable", "difference"))))
+
+result[1,] <- calculate_var_importance('danceability')
+result[2,] <- calculate_var_importance('energy')
+result[3,] <- calculate_var_importance('acousticness')
+result[4,] <- calculate_var_importance('instrumentalness')
+result[5,] <- calculate_var_importance('valence')
+result[6,] <- calculate_var_importance('loudness')
+
+result %>% arrange(difference)
+```
+
+While random forest's rankings KNN's rankings disagree on the ranks of most variables, they both agree that danceability is the most important predictor, and loudness is the least important predictor.
+
 
 Describe the goals / purpose of the methods used in the overall context of your research investigations.
 
-## Classification - Results
+## Results
 
 Summarize your final model and justify your model choice (see below for ways to justify your choice).
 
@@ -309,3 +448,44 @@ rf_OOB_output(data_fit_mtry2, 2, music_clean %>% pull(genre)) %>%
   conf_mat(truth = class, estimate = .pred_class)
 ```
 Looking at the confusion matrix, we can see that for each song the model predicted the correct genre more times than all the other genres. Looking at actual numbers, interpretations are difficult to make given that the proportions for each genre were not equal and varied wildly. One observation we can make is that for when the model predicted reggae, it turned out to be hip hop and jazz an equal amount of time, despite hip hop having the lowest proportion of songs (904 songs vs jazz's 3845 songs) meaning it overpredicted reggae for hip hop in comparison to other genres. Otherwise, there is too much variance between proportions to safely make assumptions about the model's strengths and weaknesses based on the confusion matrix alone.
+
+
+38.59, min_n = 2
+1	accuracy	multiclass	0.3859791	
+2	accuracy	multiclass	0.3806570	
+3	accuracy	multiclass	0.3766742	
+4	accuracy	multiclass	0.3761455	
+5	accuracy	multiclass	0.3746299	
+6	accuracy	multiclass	0.3747709	
+
+, min_n = 10
+1	accuracy	multiclass	0.3887988	
+2	accuracy	multiclass	0.3843226	
+3	accuracy	multiclass	0.3833004	
+4	accuracy	multiclass	0.3798111	
+5	accuracy	multiclass	0.3794586	
+6	accuracy	multiclass	0.3779783	
+
+39.03849, min_n = 20
+1	accuracy	multiclass	0.3903849	
+2	accuracy	multiclass	0.3898210	
+3	accuracy	multiclass	0.3863668	
+4	accuracy	multiclass	0.3846750	
+5	accuracy	multiclass	0.3824193	
+6	accuracy	multiclass	0.3815029	
+
+39.09841, min_n = 30
+1	accuracy	multiclass	0.3909841	
+2	accuracy	multiclass	0.3917947	*
+3	accuracy	multiclass	0.3880234	
+4	accuracy	multiclass	0.3862259	
+5	accuracy	multiclass	0.3842873	
+6	accuracy	multiclass	0.3830537	
+
+39.19710, min_n = 40
+1	accuracy	multiclass	0.3903144	
+2	accuracy	multiclass	0.3919710	
+3	accuracy	multiclass	0.3890455	
+4	accuracy	multiclass	0.3881644	
+5	accuracy	multiclass	0.3864726	
+6	accuracy	multiclass	0.3841463	
