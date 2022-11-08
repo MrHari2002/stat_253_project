@@ -1,4 +1,4 @@
-# ---
+---
 title: "STAT 253 HW4"
 author: "Emydius, Hari, Lucy"
 date: "2022-11-1"
@@ -73,7 +73,7 @@ rf_spec <- rand_forest() %>%
   set_engine(engine = 'ranger') %>% 
   set_args(mtry = NULL, # size of random subset of variables; default is floor(sqrt(number of total predictors))
            trees = 1000, # Number of trees
-           min_n = 40,
+           min_n = 2,
            probability = FALSE, # FALSE: get hard predictions (not needed for regression)
            importance = 'impurity') %>% # we'll come back to this at the end
   set_mode('classification') 
@@ -177,11 +177,11 @@ ggplot(accuracys,aes(x= label,y=.estimate)) +
   theme_classic()
 ```
 
-As it turns out, `data_fit_mtry1` gives us the best overall accuracy estimate, that is, 38.6%. Accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry`=6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
+As it turns out, `data_fit_mtry1` gives us the best overall accuracy estimate, that is, 38.6%. Accuracy drops with a decreasing speed as we increase `mtry` to 2, 3, 4, and 5. Then, when `mtry` = 6, we have a slightly better accuracy compared to `data_fit_mtry5`. 
 
-Considering the bias-variance tradeoff, although `mtry`=1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. This may be due to the fact that `data_fit_mtry1` was able to include splits on "weaker" variables that normally would not "win" in any splits. Thus, `data_fit_mtry1` has more chance to explore the globally best combination of splits, rather than locally best ones that prioritize strong variables or variables that are more correlated with the previously chosen one. 
+Considering the bias-variance tradeoff, although `mtry` = 1 leads to very high variance in the decisions among the trees, we know that in the end, when counting the majority votes from all trees in the forest, this model still wins as the one whose majority votes are closest to the truth. This may be due to the fact that `data_fit_mtry1` was able to include splits on "weaker" variables that normally would not "win" in any splits. Thus, `data_fit_mtry1` has more chance to explore the globally best combination of splits, rather than locally best ones that prioritize strong variables or variables that are more correlated with the previously chosen one. 
 
-However, there is another tuning parameter we should consider - `min_n`, the minimum number of cases in a node to consider splitting. Since `data_fit_mtry2`'s accuracy is very close to that of `data_fit_mtry1`, we will tune for the best `min_n` on both of these values of `mtry`. It is possible that with a different value of `min_n`, `mtry`=2 is actually the best one.
+However, there is another tuning parameter we should consider - `min_n`, the minimum number of cases in a node to consider splitting. Since `data_fit_mtry2`'s accuracy is very close to that of `data_fit_mtry1`, we will tune for the best `min_n` on both of these values of `mtry`. It is possible that with a different value of `min_n`, `mtry` = 2 is actually the best one.
 
 #### Tuning for the best min_n {-}
 
@@ -251,7 +251,7 @@ ggplot(accuracys,aes(x=label, y=.estimate, group=mtry, color=factor(mtry))) +
 accuracys %>% slice_max(.estimate)
 ```
 
-As seen from the graph, at about `min_n`=30, the OOB accuracy of the `mtry2` model starts to get higher than that of the `mtry1` model. The highest accuracy we can get is 39.55%, which is from a random forest with `mtry`=2 and `min_n`=70. We can also try highest values of `mtry`, but based on the little difference in accuracy among different `mtry`'s at the same `min_n` as we've seen above, we do not expect a drastic increase in accuracy even if there is. Plus, as discussed above, picking higher `mtry` (3, 4, 5 and 6) may actually hurt our chance of building trees that include the globally best combinations of splits, given how few predictors we have. 
+As seen from the graph, at about `min_n`=30, the OOB accuracy of the `mtry2` model starts to get higher than that of the `mtry1` model. The highest accuracy we can get is 39.55%, which is from a random forest with `mtry` = 2 and `min_n` = 70. We can also try highest values of `mtry`, but based on the little difference in accuracy among different `mtry`'s at the same `min_n` as we've seen above, we do not expect a drastic increase in accuracy even if there is. Plus, as discussed above, picking higher `mtry` (3, 4, 5 and 6) may actually hurt our chance of building trees that include the globally best combinations of splits, given how few predictors we have. 
 
 Therefore, we will move forward to examining variable importance with the best random forest model we have concluded.
 
@@ -275,7 +275,6 @@ impurity_output %>%
     vip(num_features = 30) + theme_classic() #based on impurity
 
 impurity_output %>% vip::vi() %>% head()
-impurity_output %>% vip::vi() %>% tail()
 ```
 
 ```{r}
@@ -292,7 +291,7 @@ permutation_output %>%
 permutation_output %>% vip::vi() %>% head()
 ```
 
-Both measurements agree on the the rank of `danceability` (most important) and `valence` (5th rank), but swap the 2nd vs. 3rd ranks and 4th vs. 6th ranks. Impurity ranks `acousticness` higher than `energy`, and `instrumentalness` higher than `loudness`.
+Both measurements agree on the the rank of `danceability` (most important), `valence` (5th rank), and `loudness` (6th, last rank) but disagree on the rank of `energy`, `instrumentalness` and `acousticness`. Impurity ranks `energy` lower than `instrumentalness` and acousticness`, while permutation ranks `energy` higher than both.
 
 However, we know that the impurity measure tends to favor predictors with a lot of unique values, because with many unique values, there are many more possible splits, thus making it easier to find an optimal split that makes a big improvement in purity. Therefore, we believe that the result from the permutation approach is more reliable. 
 
@@ -300,32 +299,11 @@ To find out whether this is actually the case, we will take a look at the number
 
 ```{r}
 # Count the number of unique values of each predictor
-music_clean %>% select(energy, acousticness, instrumentalness, loudness) %>%
+music_clean %>% select(instrumentalness, acousticness, energy) %>%
   sapply(function (x) n_distinct(x))
 ```
 
-As it turns out, impurity may have actually favored predictors with more unique values - `acousticness` has ~3 times more unique values than `energy`, and `loudness` also has ~3 times more unique values than `instrumentalness`. Therefore, the variable importance rankings of permutation is more likely to be accurate.
-
-We can also check the violin plots of all predictors to verify the result of permutation:
-
-```{r}
-# Violin plots of the predictors, in the order of permutation measurement
-ggplot(music_clean, aes(x = genre, y = danceability)) + 
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = energy)) + 
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = acousticness)) + 
-    geom_violin() + theme_classic()
-
-ggplot(music_clean, aes(x = genre, y = instrumentalness)) + 
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = valence)) + 
-    geom_violin() + theme_classic()
-ggplot(music_clean, aes(x = genre, y = loudness)) + 
-    geom_violin() + theme_classic()
-```
-
-The rankings make sense considering how each predictor can single out certain genres. Overall, the order of variable importance that may be most realistic is danceability, energy, acousticness, instrumentalness, valence, and loudness.
+As it turns out, impurity may have actually favored predictors with more unique values - `instrumentalness` has 3.66 times more unique values than `energy`, while `acousticness` has 2.81 more unique values than `energy`. Therefore, the variable importance rankings of permutation is more likely to be accurate.
 
 Next, we will use an alternative model type to answer our research questions.
 
@@ -380,9 +358,8 @@ knn_fit_cv %>%
   select_by_one_std_err(metric = 'accuracy', desc(neighbors))  # Choose neighbors value that leads to the highest neighbors within 1 se of the lowest CV MAE
 ```
 
-The best KNN model includes 153 neighbors, and has an overall test accuracy of 37.43% with a standard error of 0.26%. If we want to decrease variance, then the model with the highest number of neighbors within 1 standard error of the lowest cross-validated MAE is the one with 459 neighbors, which gives an overall test accuracy of 37.17% with a standard error of 0.22%. As seen from the graph, accuracy will tend to go down, or not pass the threshold of 37.5% if we keep increasing the number of neighbors. Therefore, we believe the best KNN model (out of all possible KNN models) has less accuracy than the best random forest model (39.55%).
+The best KNN model includes 174 neighbors, and has an overall test accuracy of 37.53% with a standard error of 0.4%. If we want to decrease variance, then the model with the highest number of neighbors within 1 standard error of the lowest cross-validated MAE is the one with 500 neighbors, which gives an overall test accuracy of 37.25% with a standard error of 0.42%. As seen from the graph, accuracy will tend to go down, or not pass the threshold of 38% if we keep increasing the number of neighbors. Therefore, we believe the best KNN model (out of all possible KNN models) has less accuracy than the best random forest model (39.55%).
 
-The graph and result shows that accuracy gets better as we increase K. However, even with 99 neighbors, KNN still cannot beat random forest in accuracy - it only gets up to 37.41%.
 
 #### Variable Importance {-}
 
@@ -415,77 +392,96 @@ result <- data.frame(matrix(ncol=2,nrow=6, dimnames=list(NULL, c("variable", "di
 
 result[1,] <- calculate_var_importance('danceability')
 result[2,] <- calculate_var_importance('energy')
-result[3,] <- calculate_var_importance('acousticness')
-result[4,] <- calculate_var_importance('instrumentalness')
+result[3,] <- calculate_var_importance('instrumentalness')
+result[4,] <- calculate_var_importance('acousticness')
 result[5,] <- calculate_var_importance('valence')
-result[6,] <- calculate_var_importance('loudness')
+result[6,] <- calculate_var_importance('loudness') 
 
 result %>% arrange(difference)
 ```
 
-While random forest's rankings KNN's rankings disagree on the ranks of most variables, they both agree that danceability is the most important predictor, and loudness is the least important predictor.
+While random forest's rankings KNN's rankings disagree on the ranks of most variables, they both agree that danceability is the most important predictor, and loudness is the least important predictor. KNN ranks the predictors significance as follows, from most important to least important:  
 
-
-Describe the goals / purpose of the methods used in the overall context of your research investigations.
 
 ## Results
 
-Summarize your final model and justify your model choice (see below for ways to justify your choice).
+The best overall model with the highest accuracy is the random forest model with `mtry` = 2 and `min_n` = 70. Although it is our best model, its OOB accuracy estimation is only 39.55%, which is quite low for a prediction model. However, given that we have up to 7 genres to classify, and given how all our predictors - `danceability`, `energy`, `acousticness`, `instrumentalness`, `valance`, `loudness` are not strictly sonic-based but calculated based on an undisclosed formula/algorithm of Spotify, this level of accuracy is quite good. 
 
-Compare the different classification models tried in light of evaluation metrics, variable importance, and data context.
-Display evaluation metrics for different models in a clean, organized way. This display should include both the estimated metric as well as its standard deviation. (This won’t be available from OOB error estimation. If using OOB, don’t worry about reporting the SD.)
-Broadly summarize conclusions from looking at these evaluation metrics and their measures of uncertainty.
+```{r}
+accuracys %>% slice_max(.estimate)
+```
 
-## Classification - Conclusions
+Since this is the model with the highest accuracy, we also take its variable importance ranking to be the most reliable. Of the two measurements for variable importance in random forest models, we believe the ranking by the permutation approach is the more accurate, because impurity tends to favor variables with more unique values - which seems to be what actually happened in the variables whose rankings the two measurements disagree on. Therefore, the orders of importance among the variables is as follows: danceability, energy, instrumentalness, acousticness, valence, and loudness.
 
-Interpret evaluation metric(s) for the final model in context. Does the model show an acceptable amount of error? - If using OOB error estimation, display the test (OOB) confusion matrix, and use it to interpret the strengths and weaknesses of the final model. - Summarization should show evidence of acknowledging the data context in thinking about the sensibility of these results.
+```{r}
+permutation_output %>% vip::vi() %>% head()
+```
 
-The evaluation metric we got for the final model was 40.624% accuracy with a random forest of mtry 2. This means that using our model, we were able to predict the correct genre given our metrics about 40.6% of the time. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. Our non-information rate for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 40.6% is 1.64 times more accurate than the non-information rate meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50% meaning the model would be wrong more times than it is correct. According to our random forest model, the most important variable was danceability shown by both permutation and impurity results with our random forest model; showing dacneability with the highest importance metric.
+
+## Conclusions {-}
+
+#### Comparing With the No-Information Rate (NIR) {-}
+
+The evaluation metric we got for the final model was 39.55% accuracy with a random forest of `mtry` = 2 and `min_n` = 70. This means that using our model, we were able to predict the correct genre given our metrics about 39.55% of the time. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. The NIR for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 39.55% is 1.59 times more accurate than the NIR meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50%, meaning the model would be wrong more times than it is correct. 
+
+#### Variable Importance Interpretation {-}
+
+According to our random forest model's permutation measurement, the ranking of variable importance is as follows: danceability, energy, instrumentalness, acousticness, valence, and loudness. However, both the permutation and impurity measurements agree that the most important variable is `danceability`, and the two least important variable is `valance` and `loudness`. This means that there is little to no difference in loudness and valence (how positive or negative a track sounds) among the seven genres (blues, country, hip hop, jazz, pop, reggae, rock). To see how each of the features singles out different genres, we can look at the average values of the features that each genre demonstrates, as well as the violin plots:
+
+```{r}
+# Average values of features
+music_clean %>%
+  group_by(genre) %>% 
+  summarize(avg_danceability=mean(danceability), avg_energy=mean(energy), avg_instrumentalness=mean(instrumentalness),avg_acousticness=mean(acousticness), avg_valence=mean(valence), avg_loudness=mean(loudness))
+
+# Violin plots of the predictors, in the order of permutation measurement
+ggplot(music_clean, aes(x = genre, y = danceability)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = energy)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = instrumentalness)) + 
+    geom_violin() + theme_classic()
+
+ggplot(music_clean, aes(x = genre, y = acousticness)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = valence)) + 
+    geom_violin() + theme_classic()
+ggplot(music_clean, aes(x = genre, y = loudness)) + 
+    geom_violin() + theme_classic()
+```
+
+From the average scores above, there are several observations:
+  - Hip hop and reggae are much more `danceable` than other genres. This makes sense, because these 2 genres are commonly known as "dance music".
+  - Hip hop and rock score quite noticeably higher on `energy`. than other genres.
+  - Jazz has the highest `instrumentalness` (~less vocal), but the difference to the second most instrumental genre is only 0.23357732	- 0.09453841 = 0.13903891. After jazz, blues and rock are also twice or more as instrumental as the remaining genres.
+  - Hip hop, reggae, and rock are generally much less `acoustic`.
+  - Again, hip hop and reggae score the highest on `valence`, although not as evident as with danceability.
+  - `Loudness` does not differ much among the genres.
+  
+Both the average feature values and the violin plots are generally in agreement with our final ranking of variable importance. 
+
+#### Confusion Matrix {-}
 
 ```{r}
 # Confusion Matrix
-rf_OOB_output(data_fit_mtry2, 2, music_clean %>% pull(genre)) %>%
+rf_OOB_output(best_rf_fit, "mtry = 2, min_n = 70", music_clean %>% pull(genre)) %>%
   conf_mat(truth = class, estimate = .pred_class)
 ```
-Looking at the confusion matrix, we can see that for each song the model predicted the correct genre more times than all the other genres. Looking at actual numbers, interpretations are difficult to make given that the proportions for each genre were not equal and varied wildly. One observation we can make is that for when the model predicted reggae, it turned out to be hip hop and jazz an equal amount of time, despite hip hop having the lowest proportion of songs (904 songs vs jazz's 3845 songs) meaning it overpredicted reggae for hip hop in comparison to other genres. Otherwise, there is too much variance between proportions to safely make assumptions about the model's strengths and weaknesses based on the confusion matrix alone.
+
+Looking at the confusion matrix, we can see that except for blues, hip hop and rock, our best model predicted the correct genre more times than each of the incorrect genres. Looking at actual numbers, interpretations are difficult to make given that the proportions for each genre were not equal and varied wildly. However, here, we will list out the genres that our model misidentified the most for each of the true observed genres:
+
+  - blues: commonly misidentified as **pop** and country.
+  - country: commonly misidentified as pop
+  - hip hop: commonly misidentified as **pop**, **reggae**
+  - jazz: commonly misidentified as country, pop
+  - pop: commonly misidentified as country
+  - reggae: commonly misidentified as pop, country
+  - rock: commonly misidentified as **pop**
+  
+Note that the bolded genres are the ones that get predicted even more times than the true genre.
+
+One interesting observation we can make is that for when the model predicted reggae, it turned out to be hip hop more times than jazz and blues, despite hip hop having the lowest proportion of songs (904 songs vs jazz's 3845 songs and blues' 4604 songs) meaning it overpredicted reggae for hip hop in comparison to other false genres. This makes sense given how hip hop and reggae both has generally high danceability, high valance, and low acousticness. 
 
 
-38.59, min_n = 2
-1	accuracy	multiclass	0.3859791	
-2	accuracy	multiclass	0.3806570	
-3	accuracy	multiclass	0.3766742	
-4	accuracy	multiclass	0.3761455	
-5	accuracy	multiclass	0.3746299	
-6	accuracy	multiclass	0.3747709	
 
-, min_n = 10
-1	accuracy	multiclass	0.3887988	
-2	accuracy	multiclass	0.3843226	
-3	accuracy	multiclass	0.3833004	
-4	accuracy	multiclass	0.3798111	
-5	accuracy	multiclass	0.3794586	
-6	accuracy	multiclass	0.3779783	
 
-39.03849, min_n = 20
-1	accuracy	multiclass	0.3903849	
-2	accuracy	multiclass	0.3898210	
-3	accuracy	multiclass	0.3863668	
-4	accuracy	multiclass	0.3846750	
-5	accuracy	multiclass	0.3824193	
-6	accuracy	multiclass	0.3815029	
-
-39.09841, min_n = 30
-1	accuracy	multiclass	0.3909841	
-2	accuracy	multiclass	0.3917947	*
-3	accuracy	multiclass	0.3880234	
-4	accuracy	multiclass	0.3862259	
-5	accuracy	multiclass	0.3842873	
-6	accuracy	multiclass	0.3830537	
-
-39.19710, min_n = 40
-1	accuracy	multiclass	0.3903144	
-2	accuracy	multiclass	0.3919710	
-3	accuracy	multiclass	0.3890455	
-4	accuracy	multiclass	0.3881644	
-5	accuracy	multiclass	0.3864726	
-6	accuracy	multiclass	0.3841463	
