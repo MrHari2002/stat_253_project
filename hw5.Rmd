@@ -1,0 +1,89 @@
+---
+title: "STAT 253 HW4"
+author: "Emydius, Hari, Lucy"
+date: "2022-11-1"
+output: html_document
+---
+
+```{r hw4_setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
+```
+
+# Homework 5 {-} 
+
+## Research question {-} 
+
+**Data context:**
+
+“Music Dataset: 1950 to 2019,” collected in a research study in 2020 using Spotify’s Python package and other web APIs, is a dataset consisting of basic information and metadata for 28,372 lyrical tracks released from 1950 to 2019. Each row in the dataset represents a track with its name, artist, release year, genre, lyrics, main topic, and normalized metadata. Here, metadata refers to musical features of a track, such as: danceability, loudness, acousticness, instrumentalness, valence, and energy. Besides, the authors also include normalized data for each of the sixteen topics a track can demonstrate, which ultimately determines its main topic. Examples of such topics are: dating, violence, sadness, romantic, etc.
+
+> The dataset contains some of the most popular music genres: blues, country, hiphop, jazz, pop, reggae, and rock. Songs of these genres can be easily identified by ear, although what makes them distinctive from each other is often unexplained. **Can we identify a song’s genre based on its musical features? Which musical feature(s) contribute the most to a song’s genre?** Such answers could help us understand how the music industry, or more fundamentally, our human brain, classifies songs.
+
+
+## Data Exploration {-}
+
+First, let's explore our data in order to shape our model choice.
+
+```{r}
+# Library statements
+library(dplyr);
+library(readr);
+library(broom);
+library(ggplot2);
+library(tidymodels);
+library(vip);
+library(kknn)
+tidymodels_prefer();
+
+# Read in data
+music <- read_csv("tcc_ceds_music.csv")
+# Clean data
+music_clean <- select(music, danceability, loudness, acousticness, instrumentalness, valence, energy, topic) %>%
+  mutate(topic = factor(topic))
+
+head(music_clean)
+
+set.seed(253)
+```
+
+```{r}
+genre_count <- music_clean %>% group_by(topic) %>% 
+  summarise(n = n()) %>% mutate(freq=n/sum(n)) %>% arrange(-freq)
+genre_count
+```
+
+There are 7 genres in our dataset: blues, country, hip hop, jazz, pop, reggae, and rock. Pop has the largest frequency among all 7 genres at 24.8%; hip hop has the lowest frequency at 3.1%, and reggae has the second lowest frequency at 8.8%.
+
+Because our outcome variable has 7 possible values, we cannot use logistic regression, which is used for binary classification. Hence, we will be answering our research question using random forest and K-nearest neighbors. 
+
+However, we note that since all our predictors - danceability, loudness, acousticness, instrumentalness, valence, and energy, are all numerical, it will be highly computationally intensive to perform random forest because there are so many possible splits to consider. And although KNN generally has low computational time because of its lazy learning approach, when paired with cross-validation and tune for the best K, it can be computationally heavy as well. 
+
+
+## Methods {-}
+
+## K-Means Clustering
+
+```{r}
+
+music_sub <- music %>%
+  select(danceability, loudness, acousticness, instrumentalness, valence, energy)
+
+set.seed(253)
+
+kclust_k3 <- kmeans(music_sub, centers = 8)
+kclust_k3$cluster
+
+music_sub <- music_sub %>%
+  mutate(cluster_num = factor(kclust_k3$cluster))
+
+# Trying to do the multiple violin plots for each variable so we see what the variables look like for each cluster
+music_sub %>%
+  pivot_longer(cols = -c(hclust_labels,kclust_labels), values_to = 'Values', names_to = 'Variables') %>%
+  ggplot(data = music_sub, aes(x = factor(kclust_k3)))
+
+# ggplot(data = music_sub, aes(x = cluster_num, y = danceability)) %>%
+#   geom_violin()
+
+music_sub
+```
+
