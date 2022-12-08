@@ -1,3 +1,10 @@
+---
+title: "STAT 253 HW3"
+author: "Emydius, Hari, Lucy"
+date: "2022-10-16"
+output: html_document
+---
+
 ```{r hw3_setup, include=FALSE}
 knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
 ```
@@ -24,14 +31,6 @@ library(broom);
 library(ggplot2);
 library(tidymodels);
 tidymodels_prefer();
-
-# Read in data
-music <- read_csv("tcc_ceds_music.csv")
-# Clean data
-music_clean <- select(music, - "...1", -artist_name, -track_name)
-head(music_clean)
-
-set.seed(253)
 ```
 
 
@@ -55,114 +54,338 @@ set.seed(253)
 **Required Analyses:**
 
 1. **Initial investigation: ignoring nonlinearity (for now)**
+
+Note: after this process, you might have a set of models (one of which has predictors chosen using LASSO, one model with all the predictors of interest, and perhaps some models with subsets of predictors that were chosen based on the data context rather than an algorithmic process)
+
     a. Use ordinary least squares (OLS) by using the `lm` engine and LASSO (`glmnet` engine) to build  a series of initial regression models for your quantitative outcome as a function of the predictors of interest. (As part of data cleaning, exclude any variables that you don't want to consider as predictors.)
         - You'll need two model specifications, `lm_spec` and `lm_lasso_spec` (you'll need to tune this one).
-        
-```{r}
-
-```
-        
-        
     b. For each set of variables, you'll need a `recipe` with the `formula`, `data`, and pre-processing steps
         - You may want to have steps in your recipe that remove variables with near zero variance (`step_nzv()`), remove variables that are highly correlated with other variables (`step_corr()`), normalize all quantitative predictors (`step_normalize(all_numeric_predictors())`) and add indicator variables for any categorical variables (`step_dummy(all_nominal_predictors())`).
         - These models should not include any transformations to deal with nonlinearity. You'll explore this in the next investigation.
+        
+```{r}
+# Read in data
+music <- read_csv("tcc_ceds_music.csv")
+
+# Clean data
+music_clean <- select(music, - "...1", -artist_name, -track_name)
+head(music_clean)
+
+set.seed(253)
+```        
+        
+```{r}
+# Creation of CV folds
+music_cv <- vfold_cv(data = music_clean, v = 10)
+
+# Model specs
+lm_spec <-
+    linear_reg() %>% 
+    set_engine(engine = 'lm') %>% 
+    set_mode('regression')
+  
+lm_lasso_spec_tune <- 
+  linear_reg() %>%
+  set_args(mixture = 1, penalty = tune()) %>% ## mixture = 1 indicates Lasso
+  set_engine(engine = 'glmnet') %>% #note we are using a different engine
+  set_mode('regression') 
+```
+
+```{r}
+# Recipes & workflows
+data_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean) %>%
+    step_nzv(all_predictors()) %>% # removes variables with the same value
+    step_corr()
+
+ols_wf <- workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_spec)
+
+lasso_wf_tune <-  workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_lasso_spec_tune)
+```
+
+```{r}
+# Fit & tune models
+## Fit OLS model
+ols_mod <- ols_wf %>% 
+  fit(data = music_clean)
+
+## Fit & tune LASSO model
+lasso_mod <- lasso_wf_tune %>%
+  fit(data = music_clean)
+
+penalty_grid <- grid_regular(
+  penalty(range = c(-3, 1)), #log10 transformed 
+  levels = 30)
+
+tune_output <- tune_grid( # new function for tuning parameters
+  lasso_wf_tune, # workflow
+  resamples = music_cv, # cv folds
+  metrics = metric_set(rmse, rsq, mae),
+  grid = penalty_grid # penalty grid defined above
+)
+```
+
     c. Estimate the test performance of the models using CV. Report and interpret (with units) the CV metric estimates along with a measure of uncertainty in the estimate (`std_error` is readily available when you used `collect_metrics(summarize=TRUE)`).
         - Compare estimated test performance across the models. Which models(s) might you prefer?
+        
+```{r}
+# Calculate/collect CV metrics
+## OLS model's CV metrics
+ols_cv <- fit_resamples(ols_wf,
+  resamples = music_cv, 
+  metrics = metric_set(rmse, rsq, mae)
+) 
+
+ols_cv %>% collect_metrics(summarize=TRUE)
+
+## LASSO models CV metrics
+tune_output %>% collect_metrics(summarize=TRUE)
+
+metrics_output <- collect_metrics(tune_output) %>%
+  filter(.metric == 'mae') 
+
+metrics_output %>% ggplot(aes(x = penalty, y = mean)) + 
+  geom_point() + 
+  geom_line() + 
+  labs(x = 'Lambda', y = 'CV MAE') + 
+  scale_x_log10() +
+  theme_classic()
+
+## Best LASSO model's CV MAE
+best_penalty <- select_best(tune_output, metric = 'mae') # choose penalty value based on lowest cv mae
+best_penalty
+
+best_se_penalty <- select_by_one_std_err(tune_output, metric = 'mae', desc(penalty)) # choose largest penalty value within 1 se of the lowest cv mae
+best_se_penalty
+```
+
+MAE results from cross-validation of the OLS model and the best LASSO models (penalty = 0.001, and penalty = 0.1610262) are respectively 12.0784177 &pm; 0.04368178 years, 12.0838520 &pm; 0.043719815 years, and 12.11439 &pm; 0.04423626 years. In the best case scenario (subtracting the standard error from the mean MAE), predictions of these models would be off by 12.03473592 years, 12.040132185 years, and 12.07015374 years respectively. This means that on average, our predictions are about 12 years sooner or later than the real release year, with the OLS model having a slightly closer guess than the best LASSO models. 
+ 
+Comparison of the MAE of the models show that the OLS model (`ols_mod`) is the best, because it has the lowest average MAE after 10-fold cross-validation (so there is few to none overfitting). 
+
     d. Use residual plots to evaluate whether some quantitative predictors might be better modeled with nonlinear relationships.
+    
+```{r}
+ols_mod_output <- ols_mod %>% 
+    predict(new_data = music_clean) %>%
+    bind_cols(music_clean) %>%
+    mutate(resid = release_date - .pred) #observed - predicted
+
+head(ols_mod_output)
+```
+
+```{r}
+# Visualize residuals
+## Residuals vs. release_date (outcome variable)
+ggplot(ols_mod_output, aes(x = release_date, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") 
+
+## Residuals vs. danceability
+ggplot(ols_mod_output, aes(x = danceability, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+## Residuals vs. loudness
+ggplot(ols_mod_output, aes(x = loudness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+## Residuals vs. acousticness
+ggplot(ols_mod_output, aes(x = acousticness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+## Residuals vs. instrumentalness
+ggplot(ols_mod_output, aes(x = instrumentalness, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+## Residuals vs. valence
+ggplot(ols_mod_output, aes(x = valence, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+## Residuals vs. energy
+ggplot(ols_mod_output, aes(x = energy, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+```
+
+The residual plots against all predictors do not show any clear trend, implying that there is no bias where predictions tend to be underestimated/overestimated at some ranges of the predictors' spectra. If we are to be strict, though, there is a slightly downward trend in the residual plot against `loudness`, which should prompt us to remodel this predictor using some nonlinear relationship.
+
+Besides, our residual plot against predicted outcomes show that our model tends to underestimate the release year of songs from 1988 onward, and overestimate songs before that year. Since this residual plot has a very linear, upward trending pattern while the residual plots against predictors do not show any clear trend, we decided to see what happens by plotting the density plots of predictions and observed outcomes. 
+
+```{r}
+# visualize predicted vs. observed data
+ggplot(ols_mod_output, aes(x = .pred)) +
+    geom_density() +
+    geom_vline(aes(xintercept=mean(.pred)),
+            color="red", linetype="dashed", size=1) + 
+    theme_classic()
+
+ggplot(ols_mod_output, aes(x = release_date)) +
+    geom_density() +
+    geom_vline(aes(xintercept=mean(.pred)),
+            color="blue", linetype="dashed", size=1) + 
+    theme_classic()
+```
+
+It seems that we do not have a very strong prediction power in our model, because with all the predictors included, our model still tends to average out the predictions (shown by a normal distribution in the density plot). This is also quantified by the R-squared of `ols_mod`, which is only 37.01227%. Although it is rather disappointing to have an R-squared this low for the best model, in the context of this dataset and our research question, it makes sense, because musical trends are usually not clear-cut, and there can be a lot of "mix and match" where typical features of one "era" are brought into a later "era". Therefore, variations in songs' release years should not be accounted too much by musical features. 
+
+However, a look into the coefficients of these musical feature variables still tells us many interesting insights. 
+    
     e. Which variables do you think are the most important predictors of your quantitative outcome? Justify your answer. Do the methods you've applied reach consensus on which variables are most important? What insights are expected? Surprising?
         - Note that if some (but not all) of the indicator terms for a categorical predictor are selected in the final models, the whole predictor should be treated as selected.
         
-Note: after this process, you might have a set of models (one of which has predictors chosen using LASSO, one model with all the predictors of interest, and perhaps some models with subsets of predictors that were chosen based on the data context rather than an algorithmic process)
+```{r}
+# Show coefficient estimates 
+## OLS model
+ols_mod %>% tidy()
+ols_mod_output %>% summarise(mean = mean(.pred), sd = sd(.pred), max = max(.pred), min = min(.pred))
+
+## LASSO models
+final_wf <- finalize_workflow(lasso_wf_tune, best_penalty) # incorporates penalty value to workflow
+final_fit <- fit(final_wf, data = music_clean)
+
+final_fit %>% tidy()
+
+final_wf_se <- finalize_workflow(lasso_wf_tune, best_se_penalty) # incorporates penalty value to workflow
+final_fit_se <- fit(final_wf_se, data = music_clean)
+tidy(final_fit_se)
+```
+
+Based on the absolute values of the coefficient estimates, the most important predictors in our model are in order: loudness, danceability, valence, and acousticness. This order of importance is also true for the best LASSO models. 
+
+From the coefficients, we can infer that in general, later songs are more danceable, a lot louder, less acoustic, slightly more instrumental, less positive (valence), and have just a little more energy. The trends of higher danceability and less acousticness are expected, but it is quite surprising that loudness plays such an important role (twice as much as danceability - the second most important predictor) in our model. This could be due to the advancement in audio recording technologies over time, given that [1975 marks the start of the Digital Era](https://en.wikipedia.org/wiki/History_of_sound_recording). 
+
+Another interesting insight is in the considerable, negative coefficient of valence, which is the musical positiveness (happy, cheerful, euphoric vs. sad, depressed, angry) conveyed by a track. Up to nearly 25 years is the estimated difference in release year between the happiest song and the saddest song possible. One plausible explanation for this trend is the rise of musical genres like Emo, Indie, Gothic Metal, Doom Metal, etc. However, this needs a closer look into the `genre` column of our dataset, since the dataset may not include songs of these musical genres or may not represent the total population with regards to these movements. 
+
+OLS has been the overall best model so far. Among our predictors, `energy` is the only one that seems irrelevant, whose coefficient is shrunk to 0 in LASSO model 17 (penalty = 0.1610262). However, because `energy`'s coefficient in the OLS model is only 0.2156978 years (which means it does not affect the outcome much given the outcome unit is years), and because OLS overall generates slightly more accurate predictions than LASSO, we chose OLS to be our final model. This is for the sake of both predictive accuracy and interpretability of the model output (while LASSO here only excludes one less relevant predictor, interpretation of OLS models are generally much simpler).  
+
 <br>
 
 2. **Accounting for nonlinearity**
+
     - Update your models to use natural splines for some of the quantitative predictors to account for non-linearity (these are GAMs).
         - I recommend using OLS engine to fit these final models.
         - You'll need to update the recipe to include `step_ns()` for each quantitative predictor that you want to allow to be non-linear.
         - To determine number of knots (`deg_free`), I recommend fitting a smoothing spline and use `edf` to inform your choice.
+        
+In our residual plots above when assuming all linear terms, we see that `loudness` should surely be adjusted for nonlinearity. However, since other variables also have some degree of wiggliness in their residual plots against the predictor, we will first fit a model where all of them are smooth terms. Also based on the residual plots, our expectation is that `danceability` and `valence` will have smaller `edf`s than other variables.
 
-    - Compare insights from variable importance analyses here and the corresponding results from the Investigation 1. Now after having accounted for nonlinearity, have the most relevant predictors changed?
-        
-        For our OLM model, the significant values were ranked loudness, danceability, valence, acousticness, instrumentalness, energy. We don't know what they are ranked for our spline model, but they're all listed as significant.
-        
-        - Do you gain any insights from the GAM output plots (easily obtained from fitting smoothing splines) for each predictor?
-        
-        We can see that there are predictors that are more nonlinear than other terms and would benefit more from splines. We specifically noticed that danceability and valence looked very linear compared to other terms like loudness, and we fit a GAM model with those two as linear terms and our results between them did not change much.
-        
-    - Compare model performance between your GAM models that the models that assuming linearity.
-        - How does test performance of the GAMs compare to other models you explored?
-        
-        After making our GAMs, we noticed that our mae and rmse lowered slightly and our r-squared increase slightly, meaning our predictive performance informed when using splines.
+Note that we choose to include `energy`, because OLS in the previous section has proven to be slightly more accurate compared to LASSO where `energy` coefficient is shrink down to 0. 
 
-    - Don't worry about KNN for now.
-    
 ```{r}
+# GAM model spec
 gam_spec <-
   gen_additive_mod() %>%
   set_engine(engine = 'mgcv') %>%
   set_mode('regression')
 
+# GAM model
 gam_mod <- fit(gam_spec,
                release_date ~ s(danceability) + s(loudness) + s(acousticness) + s(instrumentalness) + s(valence) + s(energy),
                data = music_clean)
+```
 
-par(mfrow=c(2,2))
-
+```{r}
 gam_mod %>% pluck('fit') %>% summary()
-
 gam_mod %>% pluck('fit') %>% plot( all.terms = TRUE, pages = 1)
 ```
+
+As expected, the `danceability` and `valence` splines are more of a straight line than others. Their `edf` are also the smallest. Interestingly, all p-values are significantly small (<2e-16), and all splines are marked as "***", meaning they all are significant. This further supports our inclusion of `energy`. All in all, we decide to continue including all variables, with `loudness`, `acousticness`, `instrumentalness`, and `energy` being smooth terms, and `danceability` and `valence` being linear terms. This is to make the model simpler and less computationally intensive while still keeping the overall accuracy.
 
 ```{r}
 gam_mod_2 <- fit(gam_spec,
                release_date ~ danceability + s(loudness) + s(acousticness) + s(instrumentalness) + valence + s(energy),
                data = music_clean)
+```
 
+```{r}
 gam_mod_2 %>% pluck('fit') %>% summary()
 
 gam_mod_2 %>% pluck('fit') %>% plot()
 ```
 
+Except for `loudness`, the `edf`s of all smooth terms slightly decrease. All p-values remain significantly small, and all variables continues being marked as "***" - highly significant. Our R-squared very slightly decreases (from 0.403 to 0.402), meaning the overall performance of this model (`gam_mod_2`) remains the same compared to `gam_mod`.
+
+Finally, we check to see if the number of knots in any smooth terms should be increased. If nothing changes, the degree of freedom for `loudness`, `acousticness`, `instrumentalness` and `energy` will be respectively 8, 8, 7, 7 in our final GAM model with recipes.
+
 ```{r}
+# Diagnostics: Check to see if the number of knots is large enough (if p-value is low, increase number of knots)
+par(mfrow=c(2,2))
+gam_mod_2 %>% pluck('fit') %>% mgcv::gam.check() 
+```
+
+The `edf` is not too close to k' for all smooth terms, and they all have high p-values. Therefore, we do not change the number of knots for any smooth terms.
+
+Finally, we apply a GAM model with recipe (using `step_ns()`) using the edf from above. 
+
+```{r}
+# Model spec
 lm_spec <-
   linear_reg() %>%
   set_engine(engine = 'lm') %>%
   set_mode('regression')
 
-music_cv <- vfold_cv(data = music_clean, v = 10)
-
+# General recipe
 music_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean)
 
+# Adding splines
 spline_rec <- music_rec %>%
     step_ns(loudness, deg_free = 8) %>%
-    step_ns(acousticness, deg_free = 8) %>% 
-    step_ns(instrumentalness, deg_free = 7) %>%
-    step_ns(energy, deg_free = 7) %>%
-    step_ns(danceability, deg_free = 5) %>%
-    step_ns(valence, deg_free = 5)
+    step_ns(acousticness, deg_free = 8) %>%
+    step_ns(instrumentalness, deg_free = 7) %>% 
+    step_ns(energy, deg_free = 7)
 
-music_wf <- workflow() %>%
-    add_model(lm_spec) %>%
-    add_recipe(music_rec)
-
+# GAM workflow
 spline_wf <- workflow() %>%
     add_model(lm_spec) %>%
     add_recipe(spline_rec)
 
-fit_resamples(
-    music_wf,
-    resamples = music_cv, # cv folds
-    metrics = metric_set(mae,rmse,rsq)                     
-) %>% collect_metrics()
-
+# Evaluation metrics with cross-validation
 fit_resamples(
     spline_wf,
     resamples = music_cv, # cv folds
     metrics = metric_set(mae,rmse,rsq)                     
 ) %>% collect_metrics()
 
+# For convenience, here's the metrics from cross-validation on the OLS model
+ols_cv %>% collect_metrics(summarize=TRUE)
 ```
 
+    - Compare insights from variable importance analyses here and the corresponding results from the Investigation 1. Now after having accounted for nonlinearity, have the most relevant predictors changed?
+        
+For our OLS model, the significant values were ranked loudness, danceability, valence, acousticness, instrumentalness, and energy. We don't know how they are ranked for our spline model, because they're all listed as significant and have significantly low p-values.
+        
+    - Do you gain any insights from the GAM output plots (easily obtained from fitting smoothing splines) for each predictor?
+        
+We can see that there are predictors that are more nonlinear than other terms and would benefit more from splines. We specifically noticed that `danceability` and `valence` looked very linear compared to other terms. When we fit a GAM model with those two as linear terms, our results of edfs, p-values and R-squared did not change much compared to the one where we have all predictors as splines. 
+        
+    - Compare model performance between your GAM models that the models that assuming linearity.
+        - How does test performance of the GAMs compare to other models you explored?
+        
+After making our GAMs, we noticed that our MAE and RMSE lowered slightly - about 0.5 years, and our r-squared increase slightly - from 0.37 to 0.40. Overall, this means our predictive performance increases when using splines.
+
+    - Don't worry about KNN for now.
+  
 
 <br>
 
@@ -177,97 +400,6 @@ Based on our investigations so far, we decided the spline model is the best mode
     - Are there any harms that may come from your analyses and/or how the data were collected?
     - What cautions do you want to keep in mind when communicating your work?
 
+One harm we should consider is the possibility of the overgeneralization of music trends. One of our planned research questions is to see if we can predict the year a song was released based on its attributes like valence, danceability, etc. However, this essentially ties a specific year to a specific kind of genre and we do not want to perpetuate any stereotypes such as modern music being more about violence or being negative, etc. We just want to highlight some overall trends and not ignore the fact that at any year, music of many different genres is still made. Another caution we should keep in mind is that this dataset is limited to the Spotify library since these values are from the Spotify API. Our songs are also limited to English songs, so we only see trends for a specific language. In addition, the values we are getting from the Spotify API are from AI, so the values have the possibility to be subjective. A caution from our analysis is that with the variables we used we see a trend in the data but the predictive power of our current model is low due to the R-squared value.
 
-
-<br><br><br>
-
-
-
-## Portfolio Work {-}
-
-**Length requirements:** Detailed for each section below.
-
-**Organization:** To help the instructor and preceptors grade, please organize your document with clear section headers and start new pages for each method. Thank you!
-
-**Deliverables:** Continue writing your responses in the same Google Doc that you set up for Homework 1. Include that URL for the Google Doc in your submission.
-
-**Note:** Some prompts below may seem very open-ended. This is intentional. Crafting good responses requires looking back through our material to organize the concepts in a coherent, thematic way, which is extremely useful for your learning.
-<br>
-
-**Revisions:**
-
-- Make any revisions desired to previous concepts. **Important note:** When making revisions, please change from "editing" to "suggesting" so that we can easily see what you've added to the document since we gave feedback (we will "accept" the changes when we give feedback). If you don't do this, we won't know to reread that section and give new feedback.
-
-- General guidance for past homeworks will be available on Moodle (under the Solutions section). Look at these to guide your revisions. You can always ask for guidance in office hours as well.
-
-<br>
-
-**New concepts to address:**
-
-- **Splines:**
-    - Algorithmic understanding: Explain the advantages of natural cubic splines over global transformations and piecewise polynomials. Also explain the connection between splines and the ordinary (least squares) regression framework. (5 sentences max.)
-    - Bias-variance tradeoff: What tuning parameters control the performance of this method? How do low/high values of the tuning parameters relate to bias and variance of the learned model? (3 sentences max.)
-    - Parametric / nonparametric: Where (roughly) does this method fall on the parametric-nonparametric spectrum, and why? (3 sentences max.)
-    - Scaling of variables: Does the scale on which variables are measured matter for the performance of this algorithm? Why or why not? If scale does matter, how should this be addressed when using this method? (3 sentences max.)
-    - Computational time: When using splines, how does computation time compare to fitting ordinary (least squares) regression models? (1 sentence)
-    - Interpretation of output: SKIP - will be covered in the GAMs section
-
-- **Local regression:**
-    - Algorithmic understanding: Consider the R functions `lm()`, `predict()`, `dist()`, and `dplyr::filter()`. (Look up the documentation for unfamiliar functions in the Help pane of RStudio.) In what order would these functions need to be used in order to make a local regression prediction for a supplied test case? Explain. (5 sentences max.)
-    - Bias-variance tradeoff: What tuning parameters control the performance of the method? How do low/high values of the tuning parameters relate to bias and variance of the learned model? (3 sentences max.)
-    - Parametric / nonparametric: Where (roughly) does this method fall on the parametric-nonparametric spectrum, and why? (3 sentences max.)
-    - Scaling of variables: Does the scale on which variables are measured matter for the performance of this algorithm? Why or why not? If scale does matter, how should this be addressed when using this method? (3 sentences max.)
-    - Computational time: In general, local regression is very fast, but how would you expect computation time to vary with span? Explain. (3 sentences max.)
-    - Interpretation of output: SKIP - will be covered in the GAMs section
-
-- **GAMs:**
-    - Algorithmic understanding: How do linear regression, splines, and local regression each relate to GAMs? Why would we want to model with GAMs? (5 sentences max.)
-    - Bias-variance tradeoff: What tuning parameters control the performance of the method? How do low/high values of the tuning parameters relate to bias and variance of the learned model? (3 sentences max.)
-    - Parametric / nonparametric: Where (roughly) does this method fall on the parametric-nonparametric spectrum, and why? (3 sentences max.)
-    - Scaling of variables: Does the scale on which variables are measured matter for the performance of this algorithm? Why or why not? If scale does matter, how should this be addressed when using this method? (3 sentences max.)
-    - Computational time: How a GAM is specified affects the time required to fit the model - why? (3 sentences max.)
-    - Interpretation of output: How does the interpretation of ordinary regression coefficients compare to the interpretation of GAM output? (3 sentences max.)
-
-
-- **Evaluating classification models:** Consider [this xkcd comic](https://xkcd.com/2236/). Write a paragraph (around 250 words) that addresses the following questions. Craft this paragraph so it flows nicely and does not read like a disconnected list of answers. (Include transitions between sentences.)
-    - What is the classification model here?
-    - How do the ideas in this comic emphasize comparisons between overall accuracy and class-specific accuracy measures?
-    - What are the names of the relevant class-specific accuracy measures here, and what are there values?
-
-- **Logistic regression:**
-    - Algorithmic understanding: Write your own example of a logistic regression model formula. (Don't use the example from the video.) Using this example, show how to use the model to make both a soft and a hard prediction.
-    
-    - Bias-variance tradeoff: What tuning parameters control the performance of the method? How do low/high values of the tuning parameters relate to bias and variance of the learned model? (3 sentences max.)
-    
-    - Parametric / nonparametric: Where (roughly) does this method fall on the parametric-nonparametric spectrum, and why? (3 sentences max.)
-    
-    - Scaling of variables: Does the scale on which variables are measured matter for the performance of this algorithm? Why or why not? If scale does matter, how should this be addressed when using this method? (3 sentences max.)
-    
-    - Computational time: SKIP
-    
-    - Interpretation of output: In general, how can the coefficient for a quantitative predictor be interpreted? How can the coefficient for a categorical predictor (an indicator variable) be interpreted?
-
-
-
-<br><br><br>
-
-
-
-## Reflection {-}
-
-**Ethics:** Read the article [Getting Past Identity to What You Really Want](https://weallcount.com/2021/02/19/getting-past-identity-to-what-you-really-want/). Write a short (roughly 250 words), thoughtful response about the ideas that the article brings forth. What skills do you think are essential for the leaders and data analysts of organizations to have to handle these issues with care?
-
-
-**Reflection:** Write a short, thoughtful reflection about how things went this week. Feel free to use whichever prompts below resonate most with you, but don't feel limited to these prompts.
-
-- How is collaborative learning? What are you working on to make it easier to work in groups? What is not working?
-- What's going well? In school, work, other areas? What do you think would help sustain the things that are going well?
-- What's not going well? In school, work, other areas? What do you think would help improve the things that aren't going as well? Anything that the instructor can do?
-
-
-**Self-Assessment:** Before turning in this assignment on Moodle, go to the individual rubric shared with you and complete the self-assessment for the general skills (top section). After "HW3:", assess yourself on each of the general skills. Do feel like you've grown in a particular area since HW2?
-
-Assessing yourself is hard. We must practice this skill. These "grades" you give yourself are intended to have you stop and think about your learning as you grow and develop the general skills and deepen your understanding of the course topics. These grades do not map directly to a final grade. 
-
-
-
+<br><br>
