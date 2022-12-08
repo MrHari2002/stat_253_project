@@ -1,0 +1,42 @@
+---
+title: "STAT 253 - Final Project"
+author: "Lucy Tran, Emydius Montes, Hengrui Jia"
+date: "2022-12-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, tidy = TRUE)
+```
+
+## Data context {-}
+
+“Music Dataset: 1950 to 2019,” collected in a research study in 2020 using Spotify’s Python package and other web APIs, is a dataset consisting of basic information and metadata for 28,372 lyrical tracks released from 1950 to 2019. Each row in the dataset represents a track with its name, artist, release year, genre, lyrics, main topic, and normalized metadata. Here, metadata refers to musical features of a track, such as: danceability, loudness, acousticness, instrumentalness, valence, and energy. Besides, the authors include normalized data for each of the sixteen topics a track can demonstrate, which ultimately determines its main topic. Examples of such topics are: dating, violence, sadness, romantic, etc.
+
+## Research questions {-}
+
+## Regression {-}
+
+### Methods {-}
+
+### Results {-}
+
+### Conclusions {-}
+
+## Classification {-}
+
+### Methods {-}
+
+### Results {-}
+
+### Conclusions {-}
+
+## Unsupervised Learning {-}
+
+### Methods {-}
+
+### Results {-}
+
+### Conclusions {-}
+
+
