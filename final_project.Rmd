@@ -51,13 +51,87 @@ music_clean_1 <- select(music, release_date, danceability, loudness, acousticnes
 head(music_clean_1)
 
 set.seed(253)
+
+# Creation of CV folds
+music_cv <- vfold_cv(data = music_clean_1, v = 10)
 ```
 
 ### Methods {-}
 
+
+```{r}
+# Model specs
+lm_spec <-
+    linear_reg() %>% 
+    set_engine(engine = 'lm') %>% 
+    set_mode('regression')
+  
+lm_lasso_spec_tune <- 
+  linear_reg() %>%
+  set_args(mixture = 1, penalty = tune()) %>% ## mixture = 1 indicates Lasso
+  set_engine(engine = 'glmnet') %>% #note we are using a different engine
+  set_mode('regression') 
+# Recipes & workflows
+data_rec <- recipe(release_date ~ danceability + loudness + acousticness + instrumentalness + valence + energy, data = music_clean_1) %>%
+    step_nzv(all_predictors()) %>% # removes variables with the same value
+    step_corr()
+
+ols_wf <- workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_spec)
+
+lasso_wf_tune <-  workflow() %>%
+  add_recipe(data_rec) %>%
+  add_model(lm_lasso_spec_tune)
+# Fit & tune models
+## Fit OLS model
+ols_mod <- ols_wf %>% 
+  fit(data = music_clean_1)
+
+## Fit & tune LASSO model
+lasso_mod <- lasso_wf_tune %>%
+  fit(data = music_clean_1)
+
+penalty_grid <- grid_regular(
+  penalty(range = c(-3, 1)), #log10 transformed 
+  levels = 30)
+
+tune_output <- tune_grid( # new function for tuning parameters
+  lasso_wf_tune, # workflow
+  resamples = music_cv, # cv folds
+  metrics = metric_set(rmse, rsq, mae),
+  grid = penalty_grid # penalty grid defined above
+)
+```
+
+```{r}
+# GAM model spec
+gam_spec <-
+  gen_additive_mod() %>%
+  set_engine(engine = 'mgcv') %>%
+  set_mode('regression')
+
+# GAM model
+gam_mod <- fit(gam_spec,
+               release_date ~ s(danceability) + s(loudness) + s(acousticness) + s(instrumentalness) + s(valence) + s(energy),
+               data = music_clean_1)
+
+gam_mod %>% pluck('fit') %>% summary()
+
+```
+
 ### Results {-}
+MAE results from cross-validation of the OLS model and the best LASSO models (penalty = 0.001, and penalty = 0.1610262) are respectively 12.0784177 ± 0.04368178 years, 12.0838520 ± 0.043719815 years, and 12.11439 ± 0.04423626 years. In the best case scenario (subtracting the standard error from the mean MAE), predictions of these models would be off by 12.03473592 years, 12.040132185 years, and 12.07015374 years respectively. This means that on average, our predictions are about 12 years sooner or later than the real release year, with the OLS model having a slightly closer guess than the best LASSO models.
+
+The residual plots against all predictors do not show any clear trend, implying that there is no bias where predictions tend to be underestimated/overestimated at some ranges of the predictors’ spectra. If we are to be strict, though, there is a slightly downward trend in the residual plot against loudness, which should prompt us to remodel this predictor using some nonlinear relationship.
+
+Except for loudness, the edfs of all smooth terms slightly decrease. All p-values remain significantly small, and all variables continues being marked as "***" - highly significant. Our R-squared very slightly decreases (from 0.403 to 0.402), meaning the overall performance of this model (gam_mod_2) remains the same compared to gam_mod.
+
 
 ### Conclusions {-}
+
+Based on our investigations so far, we decided the spline model is the best model we used so far since it has lower RMSE/MAE and higher r-squared. Our current analysis goal is to use the metrics gained from Spotify’s machine learning algorithm in order to predict the release year of a song (metrics such as danceability, loudness, etc). As a result, we are aiming more for predictive accuracy, which the spline models gives us more of. The spline model remains interpretable but its interpretability is also harder than the OLS/LASSO models because it is a lot harder to see which variables are more significant than others when all the p-values are too small for R to give us exact values.
+
 
 --------------------------
 
