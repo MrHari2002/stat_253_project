@@ -11,31 +11,258 @@ knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE
 
 ## Data context {-}
 
-“Music Dataset: 1950 to 2019,” collected in a research study in 2020 using Spotify’s Python package and other web APIs, is a dataset consisting of basic information and metadata for 28,372 lyrical tracks released from 1950 to 2019. Each row in the dataset represents a track with its name, artist, release year, genre, lyrics, main topic, and normalized metadata. Here, metadata refers to musical features of a track, such as: danceability, loudness, acousticness, instrumentalness, valence, and energy. Besides, the authors include normalized data for each of the sixteen topics a track can demonstrate, which ultimately determines its main topic. Examples of such topics are: dating, violence, sadness, romantic, etc.
+“Music Dataset: 1950 to 2019,” collected in a research study in 2020 using Spotify’s Python package and other web APIs, is a dataset consisting of basic information and metadata for 28,372 lyrical tracks released from 1950 to 2019. Each row in the dataset represents a track with its name, artist, release year, genre, lyrics, main topic, and normalized metadata. Here, metadata refers to musical features of a track, such as: danceability, loudness, acousticness, instrumentalness, valence, and energy. Besides, the authors include normalized data for each of the sixteen topics a track can demonstrate, which ultimately determines its main topic. Examples of such topics are: night/time, violence, sadness, romantic, etc.
+
+```{r}
+# Library statements
+library(dplyr);
+library(readr);
+library(broom);
+library(ggplot2);
+library(tidymodels);
+
+tidymodels_prefer();
+
+# Read in data
+music <- read_csv("tcc_ceds_music.csv")
+
+head(music)
+```
 
 ## Research questions {-}
 
+The dataset prompts three questions for further research:
+
+1. It would be interesting to find out about general trends in music across decades. Are there any connections between a song’s release year and its musical features? 
+
+2. The dataset contains some of the most popular music genres: blues, country, hiphop, jazz, pop, reggae, and rock. Songs of these genres can be easily identified by ear, although what makes them distinctive from each other is often unexplained. Can we identify a song’s genre based on its musical features? Which musical feature(s) contribute the most to a song’s genre? Such answers could help us understand how the music industry, or more fundamentally, our human brain, classifies songs.
+
+3. The dataset contains a column called "topic". Although a track can have characteristics of multiple topics, this topic column tells us its main theme. In this project, we are interested in tracks whose topic is "violence". If we are to group the tracks into 7 clusters (so hopefully they will correspond to the 7 genres) based on the musical features that are most useful in identifying a song's genre (from questions #2), can these clusters tell us anything about their topics? If yes, which genre(s) does the cluster(s) whose major topic is "violence" mostly belong to? The answer to this question can suggest the genre that is the most violent in our dataset.
+
+
 ## Regression {-}
+
+### Data exploration {-}
+
+```{r}
+# Clean data
+music_clean_1 <- select(music, release_date, danceability, loudness, acousticness, instrumentalness, valence, energy)
+
+head(music_clean_1)
+
+set.seed(253)
+```
 
 ### Methods {-}
 
 ### Results {-}
 
 ### Conclusions {-}
+
+--------------------------
 
 ## Classification {-}
 
+### Data exploration {-}
+
+```{r}
+# Clean data
+music_clean_2 <- select(music, genre, danceability, loudness, acousticness, instrumentalness, valence, energy) %>%
+  mutate(genre = factor(genre))
+
+head(music_clean_2)
+
+set.seed(253)
+```
+
+```{r}
+genre_count <- music_clean_2 %>% group_by(genre) %>% 
+  summarise(n = n()) %>% mutate(freq=n/sum(n)) %>% arrange(-freq)
+genre_count
+```
+
 ### Methods {-}
+
+```{r}
+# Library statements
+library(vip);
+library(kknn)
+
+```
 
 ### Results {-}
 
 ### Conclusions {-}
 
+--------------------------
+
 ## Unsupervised Learning {-}
 
-### Methods {-}
+### Data exploration {-}
 
-### Results {-}
+First, let's explore the distribution of topics in our dataset:
+
+```{r}
+topic_count <- music %>% group_by(topic) %>% 
+  summarise(n = n()) %>% mutate(freq=n/sum(n)) %>% arrange(-freq)
+topic_count
+```
+
+There are 8 topics: sadness, violence, world/life, obscene, music, night/time, romantic, and feelings. The former 4 topics in the same order are the more prevalent ones. Since we want to relate these topics with the 7 genres, we will use only the musical features most important in classifying genres to do clustering, which, according to the result of research question #2, are: danceability, energy, instrumentalness, and acousticness. Reducing these number of variables will help avoid overfitting, and reduce computational resource while maintaining the predictive power. To perform clustering, we choose K-means over hierarchical clustering, because we want there to be 7 clusters corresponding to the 7 genres. Another reason is that we do not need to interpret the distances between tracks, because there are too many of them, and we are not interested in how similar the tracks are in a cluster.
+
+
+### Method {-}
+
+```{r}
+music_clean_3 <- music
+
+# Select only the most important musical features in identifying tracks' genres
+# Musical feature variables in the original dataset are already standardized, so we do not need to do that here. 
+music_clean_3_sub <- music_clean_3 %>% select(danceability, acousticness, instrumentalness, energy)
+```
+
+```{r}
+# Set the seed before performing clustering to get repeatable results
+set.seed(253)
+
+# Group the tracks into 7 clusters (based on cluster centroids)
+kclust_k7 <- kmeans(music_clean_3_sub, centers = 7)
+
+# Assign clusters to tracks
+music_clean_3 <- music_clean_3 %>%
+    mutate(kclust_7 = factor(kclust_k7$cluster))
+```
+
+```{r}
+# Visualize the cluster assignments, labeled by topic
+ggplot(music_clean_3, aes(x = kclust_7, fill = topic)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+```
+
+As seen in the 1st graph, in cluster 4 and cluster 6, the most prevalent topic is "violence". We will check to see if these 2 clusters account for most of the tracks whose observed topic is "violence".
+
+```{r}
+# Visualize the 8 topics, labeled by cluster assignment
+ggplot(music_clean_3, aes(x = topic, fill = kclust_7)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+```
+
+Interestingly, only cluster 4 makes up more than 25% of "violence" tracks. The second most common cluster is cluster 1, but compared to other topics, "violence" is not the most, even the second most, prevalent topic for cluster 1. While cluster 6 makes up only a small part of every topic, its most common topic is clearly "violence".
+
+Next, we look at the genres of these clusters, with more attention to cluster 4 and 6.
+
+```{r}
+# Visualize cluster assignments, labeled by genre
+ggplot(music_clean_3, aes(x = kclust_7, fill = genre)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+```
+
+In cluster 4, we see 3 genres make up the most of it: rock, pop, and blues in the order of their proportion. In cluster 6, we also see 3 most common genres: jazz, blues, and rock. So, rock and blues are the 2 overlapping common genre of these two clusters. 
+
+Let's also look at the a visualization of cluster composition of the 7 genres to gain more insights:
+
+```{r}
+ggplot(music_clean_3, aes(x = genre, fill = kclust_7)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+```
+
+Interestingly, rock has up to about 50% of its tracks belonging to cluster 4 - the "most violent cluster". If we combine cluster 4 and 6 in each genre, we can see that blues, pop, and jazz in order also has a large number of tracks from cluster 4 and 6 (compared to country, hip hop, and reggae), but not as many as rock. At this point, we can tentatively conclude that rock, blues, pop, and jazz in order are the genres that tend to be violent the most.
+
+However, this result may happen by chance, because in K-means, the algorithms randomly assign 7 clusters at the beginning, which means the final cluster assignments may have been different if we use a different seed. Therefore, before we make the final conclusion, we will run the algorithm with different seeds to have different random initializations. The best initialization will have the smallest within-cluster sum of squares.
+
+
+### Choosing the best random initialization {-}
+
+Because we have a very large dataset, we will test with 100 different seeds to make sure we will get the best seeds within the test range.
+
+```{r}
+# Data-specific function to cluster and calculate total within-cluster sum of squares
+music_cluster_ss <- function(seed){
+  set.seed(seed)
+  
+  # Perform clustering
+  kclust <- kmeans(music_clean_3_sub, centers = 7)
+
+  # Return the total within-cluster sum of squares
+  return(kclust$tot.withinss)
+}
+
+results <- tibble(
+    k = 1:100,
+    total_wc_ss = purrr::map_dbl(1:100, music_cluster_ss)
+)
+
+results %>% 
+    ggplot(aes(x = k, y = total_wc_ss)) +
+    geom_point() + 
+    labs(x = "Seed",y = 'Total within-cluster sum of squares') + 
+    theme_classic()
+```
+
+```{r}
+results %>% slice_min(total_wc_ss)
+```
+
+As it turns out, initializations with seed = 39, 43, 55, 67, 72, 86, 93 are the best. Their total within-cluster sum of squares are the same, at 1500.301.
+
+
+### Conclusion with the best initializations
+
+We will now test our tentative conclusions above (with seed = 253) with 3 of the best seeds. Ideally, whatever the seed is, we want to have 2 clusters whose most common topic is violence, and within these 2 clusters, the most prevalent genres are rock, blues, pop, and jazz.
+
+```{r}
+k_means <- function() {
+  kclust_k7 <- kmeans(music_clean_3_sub, centers = 7)
+
+  music_clean_3 <- music_clean_3 %>%
+    mutate(kclust_7 = factor(kclust_k7$cluster))
+  
+  topic <- ggplot(music_clean_3, aes(x = kclust_7, fill = topic)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+  
+  show(topic)
+  
+  genre <- ggplot(music_clean_3, aes(x = kclust_7, fill = genre)) +
+    geom_bar(position = "fill") +
+    labs(x = "Cluster") + 
+    theme_classic()
+  
+  show(genre)
+}
+```
+
+
+```{r}
+set.seed(39)
+k_means()
+```
+
+With seed = 39, K-means gives us all the same conclusions as with seed = 253, although the exact numbers may be slightly different. Cluster 1 and 4 are the "most violent clusters". In cluster 1, jazz, blues, and rock are the most common genres (same as cluster 6 when seed = 253). In cluster 4, rock, pop, and blues are the most common genres (same as cluster 4 when seed = 253). The order of prevalence of these genres within each of these two cluster remains the same.
+
+```{r}
+set.seed(43)
+k_means()
+```
+
+With seed = 43, the conclusions remain the same. Cluster 2 here corresponds to cluster 4 when seed = 253. Cluster 3 here corresponds to cluster 6 when seed = 253.
+
+```{r}
+set.seed(67)
+k_means()
+```
+
+Again, the conclusions remain the same with seed = 67. Cluster 1 here corresponds to cluster 4 when seed = 253. Cluster 3 here corresponds to cluster 6 when seed = 253.
+
 
 ### Conclusions {-}
 
