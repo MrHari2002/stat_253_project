@@ -557,9 +557,9 @@ results %>% slice_min(total_wc_ss)
 As it turns out, initializations with seed = 39, 43, 55, 67, 72, 86, 93 are the best. Their total within-cluster sum of squares are the same, at 1500.301.
 
 
-### Conclusion with the best initializations
+### Interpretation with the best initializations
 
-We will now test our tentative conclusions above (with seed = 253) with 3 of the best seeds. Ideally, whatever the seed is, we want to have 2 clusters whose most common topic is violence, and within these 2 clusters, the most prevalent genres are rock, blues, pop, and jazz.
+We will now test our tentative interpretations above (with seed = 253) with 3 of the best seeds. Ideally, whatever the seed is, we want to have 2 clusters whose most common topic is violence, and within these 2 clusters, the most prevalent genres are rock, blues, pop, and jazz.
 
 ```{r}
 k_means <- function() {
