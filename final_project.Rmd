@@ -121,6 +121,7 @@ gam_mod %>% pluck('fit') %>% summary()
 ```
 
 ### Results {-}
+
 MAE results from cross-validation of the OLS model and the best LASSO models (penalty = 0.001, and penalty = 0.1610262) are respectively 12.0784177 ± 0.04368178 years, 12.0838520 ± 0.043719815 years, and 12.11439 ± 0.04423626 years. In the best case scenario (subtracting the standard error from the mean MAE), predictions of these models would be off by 12.03473592 years, 12.040132185 years, and 12.07015374 years respectively. This means that on average, our predictions are about 12 years sooner or later than the real release year, with the OLS model having a slightly closer guess than the best LASSO models.
 
 The residual plots against all predictors do not show any clear trend, implying that there is no bias where predictions tend to be underestimated/overestimated at some ranges of the predictors’ spectra. If we are to be strict, though, there is a slightly downward trend in the residual plot against loudness, which should prompt us to remodel this predictor using some nonlinear relationship.
@@ -130,7 +131,7 @@ Except for loudness, the edfs of all smooth terms slightly decrease. All p-value
 
 ### Conclusions {-}
 
-Based on our investigations so far, we decided the spline model is the best model we used so far since it has lower RMSE/MAE and higher r-squared. Our current analysis goal is to use the metrics gained from Spotify’s machine learning algorithm in order to predict the release year of a song (metrics such as danceability, loudness, etc). As a result, we are aiming more for predictive accuracy, which the spline models gives us more of. The spline model remains interpretable but its interpretability is also harder than the OLS/LASSO models because it is a lot harder to see which variables are more significant than others when all the p-values are too small for R to give us exact values.
+Based on our investigations so far, we decided the spline model is the best model since it has lower RMSE/MAE and higher r-squared. Our current analysis goal is to use the metrics gained from Spotify’s machine learning algorithm in order to predict the release year of a song (metrics such as danceability, loudness, etc). As a result, we are aiming more for predictive accuracy, which the spline models gives us more of. The spline model remains interpretable but its interpretability is also harder than the OLS/LASSO models because it is a lot harder to see which variables are more significant than others when all the p-values are too small for R to give us exact values.
 
 
 --------------------------
@@ -182,7 +183,7 @@ topic_count <- music %>% group_by(topic) %>%
 topic_count
 ```
 
-There are 8 topics: sadness, violence, world/life, obscene, music, night/time, romantic, and feelings. The former 4 topics in the same order are the more prevalent ones. Since we want to relate these topics with the 7 genres, we will use only the musical features most important in classifying genres to do clustering, which, according to the result of research question #2, are: danceability, energy, instrumentalness, and acousticness. Reducing these number of variables will help avoid overfitting, and reduce computational resource while maintaining the predictive power. To perform clustering, we choose K-means over hierarchical clustering, because we want there to be 7 clusters corresponding to the 7 genres. Another reason is that we do not need to interpret the distances between tracks, because there are too many of them, and we are not interested in how similar the tracks are in a cluster.
+There are 8 topics: sadness, violence, world/life, obscene, music, night/time, romantic, and feelings. The former 4 topics in the same order are the more prevalent ones. Since we want to relate these topics with the 7 genres, we will use only the musical features most important in classifying genres to do clustering, which, according to the result of research question #2, are: danceability, energy, instrumentalness, and acousticness. Reducing these number of variables will help avoid overfitting, and reduce computational resource while maintaining the predictive power. To perform clustering, we choose K-means over hierarchical clustering, because we want there to be 7 clusters corresponding to the 7 genres. Another reason is that we do not need to interpret the distances between tracks, because there are too many of them, and because eventually, we are not interested in how similar the tracks are in a cluster (except when tuning for the best model).
 
 
 ### Method {-}

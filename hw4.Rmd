@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r hw4_setup, include=FALSE}
-knitr::opts_chunk$set(echo=TRUE, eval=FALSE)
+knitr::opts_chunk$set(echo=TRUE, eval=TRUE)
 ```
 
 # Homework 4 {-} 
@@ -65,7 +65,7 @@ However, we note that since all our predictors - danceability, loudness, acousti
 
 #### Fitting Models {-}
 
-For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with `min_n` of 2 (so all the leaf nodes will have at most 10 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 6 predictors, we will test out every possible `mtry` and see which one has the best overall accuracy.
+For our models specification, we'll start with the random forests of 1000 trees, and our trees will be complex with `min_n` of 2 (so all the leaf nodes will have at most 2 cases). To make our trees diverse and avoid overfitting (when all trees are too similar), each tree will have different predictors to consider at each split. This number of predictors also identifies the different forests we will test out to determine which `mtry` is best for our overall accuracy. Since we only have 6 predictors, we will test out every possible `mtry` and see which one has the best overall accuracy.
 
 ```{r}
 # Model Specification
@@ -82,7 +82,7 @@ rf_spec <- rand_forest() %>%
 data_rec <- recipe(genre ~ danceability+acousticness+loudness+instrumentalness+valence+energy, data = music_clean)
 
 # Workflows
-## Create workflows for mtry = 2, 3, 4, 5, and 6
+## Create workflows for mtry = 1, 2, 3, 4, 5, and 6
 data_wf_mtry1 <- workflow() %>%
   add_model(rf_spec %>% set_args(mtry = 1)) %>%
   add_recipe(data_rec)
@@ -365,9 +365,9 @@ The best KNN model includes 174 neighbors, and has an overall test accuracy of 3
 
 ```{r}
 # Variable importance
-orig_accuracy <- 0.3743129
+orig_accuracy <- 0.3753346
 
-spec_wo_var <- nearest_neighbor(neighbors=153) %>% # new type of model!
+spec_wo_var <- nearest_neighbor(neighbors=174) %>% # new type of model!
   set_engine(engine = 'kknn') %>% # new engine
   set_mode('classification') 
 
@@ -422,7 +422,7 @@ permutation_output %>% vip::vi() %>% head()
 
 #### Comparing With the No-Information Rate (NIR) {-}
 
-The evaluation metric we got for the final model was 39.55% accuracy with a random forest of `mtry` = 2 and `min_n` = 70. This means that using our model, we were able to predict the correct genre given our metrics about 39.55% of the time. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. The NIR for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 39.55% is 1.59 times more accurate than the NIR meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50%, meaning the model would be wrong more times than it is correct. 
+The evaluation metric we got for the final model was 39.55% accuracy with a random forest of `mtry` = 2 and `min_n` = 70. This means that using our model, we were able to predict the correct genre given our metrics about 39.55% of the time. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. The NIR for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 39.55% is 1.59 times more than the NIR meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50%, meaning the model would be wrong more times than it is correct. 
 
 #### Variable Importance Interpretation {-}
 
