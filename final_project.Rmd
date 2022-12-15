@@ -164,9 +164,277 @@ library(kknn)
 
 ```
 
+```{r}
+# Model Specification
+rf_spec <- rand_forest() %>%
+  set_engine(engine = 'ranger') %>% 
+  set_args(mtry = NULL, # size of random subset of variables; default is floor(sqrt(number of total predictors))
+           trees = 1000, # Number of trees
+           min_n = 2,
+           probability = FALSE, # FALSE: get hard predictions (not needed for regression)
+           importance = 'impurity') %>% # we'll come back to this at the end
+  set_mode('classification') 
+
+# Recipe
+data_rec <- recipe(genre ~ danceability+acousticness+loudness+instrumentalness+valence+energy, data = music_clean)
+
+# Workflows
+## Create workflows for mtry = 2, 3, 4, 5, and 6
+data_wf_mtry1 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 1)) %>%
+  add_recipe(data_rec)
+
+data_wf_mtry2 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 2)) %>%
+  add_recipe(data_rec)
+
+data_wf_mtry3 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 3)) %>%
+  add_recipe(data_rec)
+
+data_wf_mtry4 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 4)) %>% 
+  add_recipe(data_rec)
+
+data_wf_mtry5 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 5)) %>% 
+  add_recipe(data_rec)
+
+data_wf_mtry6 <- workflow() %>%
+  add_model(rf_spec %>% set_args(mtry = 6)) %>% 
+  add_recipe(data_rec)
+
+```
+
+```{r}
+# Fit Models
+# Fit models for mtry = 2, 3, 4, 5, and 6
+set.seed(253) # make sure to run this before each fit so that you have the same 1000 trees
+data_fit_mtry1 <- fit(data_wf_mtry1, data = music_clean)
+
+set.seed(253)
+data_fit_mtry2 <- fit(data_wf_mtry2, data = music_clean)
+
+set.seed(253)
+data_fit_mtry3 <- fit(data_wf_mtry3, data = music_clean)
+
+set.seed(253) 
+data_fit_mtry4 <- fit(data_wf_mtry4, data = music_clean)
+
+set.seed(253)
+data_fit_mtry5 <- fit(data_wf_mtry5, data = music_clean)
+
+set.seed(253) 
+data_fit_mtry6 <- fit(data_wf_mtry6, data = music_clean)
+
+```
+```{r}
+# Custom Function to get OOB predictions, true observed outcomes and add a user-provided model label
+rf_OOB_output <- function(fit_model, model_label, truth){
+    tibble(
+          .pred_class = fit_model %>% extract_fit_engine() %>% pluck('predictions'), #OOB predictions
+          class = truth,
+          label = model_label
+      )
+}
+
+#check out the function output
+rf_OOB_output(data_fit_mtry1,1, music_clean %>% pull(genre))
+```
+
+
+
+```{r}
+data_rf_OOB_output <- bind_rows(
+    rf_OOB_output(data_fit_mtry1,1, music_clean %>% pull(genre)),
+    rf_OOB_output(data_fit_mtry2,2, music_clean %>% pull(genre)),
+    rf_OOB_output(data_fit_mtry3,3, music_clean %>% pull(genre)),
+    rf_OOB_output(data_fit_mtry4,4, music_clean %>% pull(genre)),
+    rf_OOB_output(data_fit_mtry5,5, music_clean %>% pull(genre)),
+    rf_OOB_output(data_fit_mtry6,6, music_clean %>% pull(genre))
+)
+
+data_rf_OOB_output %>% 
+    group_by(label) %>%
+    accuracy(truth = class, estimate = .pred_class)
+```
+
+
+```{r}
+labels <- data_rf_OOB_output %>% 
+    select(label)
+accuracys <- data_rf_OOB_output %>% 
+    group_by(label) %>% 
+    accuracy(truth = class,estimate= .pred_class) 
+
+ggplot(accuracys,aes(x= label,y=.estimate)) +
+  geom_point() +
+  geom_line() +
+  theme_classic()
+```
+
+```{r}
+# Model Specification
+mtry1_spec <- rand_forest() %>%
+  set_engine(engine = 'ranger') %>% 
+  set_args(mtry = 1, # size of random subset of variables
+           trees = 1000, # Number of trees
+           min_n = NULL, # tuning parameter is min_n; tuning spec
+           probability = FALSE, # FALSE: get hard predictions (not needed for regression)
+           importance = 'impurity') %>% # we'll come back to this at the end
+  set_mode('classification') 
+
+mtry2_spec <- rand_forest() %>%
+  set_engine(engine = 'ranger') %>% 
+  set_args(mtry = 2, # size of random subset of variables
+           trees = 1000, # Number of trees
+           min_n = NULL, # tuning parameter is min_n; tuning spec
+           probability = FALSE, # FALSE: get hard predictions (not needed for regression)
+           importance = 'impurity') %>% # we'll come back to this at the end
+  set_mode('classification') 
+
+# min_n values
+min_ns <- seq(5, 100, 5) # 20 values of min_n, from 5 to 100 with step of 5
+
+# Custom function to get OOB result of a random forest model with custom tuning min_n
+OOB_output <- function(model_spec, min_ns) {
+  mtry_OOB_output <- bind_rows()
+  for (min_n in min_ns) {
+    # Workflow (Recipe + Model)
+    main_wf <- workflow() %>% 
+      add_model(model_spec %>% set_args(min_n = min_n)) %>%
+      add_recipe(data_rec)
+    
+    set.seed(253)
+    fit_model <- fit(main_wf, data = music_clean)
+    mtry_OOB_output <- bind_rows(mtry_OOB_output, 
+                                 rf_OOB_output(fit_model, min_n, music_clean %>% pull(genre)))
+  }
+  return (mtry_OOB_output %>% 
+            group_by(label) %>% 
+            accuracy(truth = class, estimate = .pred_class))
+}
+
+# Result
+mtry1_result <- OOB_output(mtry1_spec, min_ns)
+mtry2_result <- OOB_output(mtry2_spec, min_ns)
+```
+
+```{r}
+# Finalize the best random forest model
+best_rf_wf <- workflow() %>%
+  add_model(mtry2_spec %>% set_args(min_n = 70)) %>% # choose the best mtry and the best min_n
+  add_recipe(data_rec)
+
+best_rf_fit <- fit(best_rf_wf, data = music_clean)
+```
+
+```{r}
+# Impurity approach
+impurity_output <- best_rf_fit %>% 
+    extract_fit_engine() 
+
+impurity_output %>% 
+    vip(num_features = 30) + theme_classic() #based on impurity
+
+impurity_output %>% vip::vi() %>% head()
+```
+
+```{r}
+# Permutation approach
+permutation_output <- best_rf_fit %>% 
+  update_model(rf_spec %>% set_args(importance = "permutation")) %>% #based on permutation
+  fit(data = music_clean) %>% 
+    extract_fit_engine() 
+
+permutation_output %>% 
+    vip(num_features = 30) + theme_classic()
+
+
+permutation_output %>% vip::vi() %>% head()
+```
+
+```{r}
+# CV Folds
+data_cv10 <- vfold_cv(music_clean, v = 10)
+
+# Model Specification
+knn_spec <- 
+  nearest_neighbor() %>% # new type of model!
+  set_args(neighbors = tune()) %>% # tuning parameter is neighbor; tuning spec
+  set_engine(engine = 'kknn') %>% # new engine
+  set_mode('classification') 
+
+# Recipe with standardization (!)
+data_rec <- recipe( genre ~ danceability+loudness+acousticness+instrumentalness+valence+energy , data = music_clean) %>%
+    step_nzv(all_predictors())# removes variables with the same value
+
+# Workflow (Recipe + Model)
+knn_wf <- workflow() %>%
+  add_model(knn_spec) %>% 
+  add_recipe(data_rec)
+
+# Tune model trying a variety of values for neighbors (using 10-fold CV)
+penalty_grid <- grid_regular(
+  neighbors(range = c(1, 500)), #  min and max of values for neighbors
+  levels = 50) # number of neighbors values
+
+knn_fit_cv <- tune_grid(knn_wf, # workflow
+              resamples = data_cv10, #CV folds
+              grid = penalty_grid, # grid specified above
+              metrics = metric_set(accuracy))
+```
+
+```{r}
+# Variable importance
+orig_accuracy <- 0.3743129
+
+spec_wo_var <- nearest_neighbor(neighbors=153) %>% # new type of model!
+  set_engine(engine = 'kknn') %>% # new engine
+  set_mode('classification') 
+
+calculate_var_importance <- function(var) {
+  new_data <- music_clean %>% select(-var)                                                          
+  rec_wo_var <- recipe(genre ~ ., data = new_data)
+  
+  # Workflow (Recipe + Model)
+  wf_wo_var <- workflow() %>%
+    add_model(spec_wo_var) %>% 
+    add_recipe(rec_wo_var)
+  
+  knn_mod_wo_var <- fit_resamples(wf_wo_var,
+    resamples = data_cv10, 
+    metrics = metric_set(yardstick::accuracy))
+
+  accuracy_wo_var <- knn_mod_wo_var %>% collect_metrics()
+  return (c(var, orig_accuracy - accuracy_wo_var %>% pull(mean)))
+}
+
+result <- data.frame(matrix(ncol=2,nrow=6, dimnames=list(NULL, c("variable", "difference"))))
+
+result[1,] <- calculate_var_importance('danceability')
+result[2,] <- calculate_var_importance('energy')
+result[3,] <- calculate_var_importance('instrumentalness')
+result[4,] <- calculate_var_importance('acousticness')
+result[5,] <- calculate_var_importance('valence')
+result[6,] <- calculate_var_importance('loudness') 
+
+result %>% arrange(difference)
+```
+
 ### Results {-}
 
+The best overall model with the highest accuracy is the random forest model with `mtry` = 2 and `min_n` = 70. Although it is our best model, its OOB accuracy estimation is only 39.55%, which is quite low for a prediction model. However, given that we have up to 7 genres to classify, and given how all our predictors - `danceability`, `energy`, `acousticness`, `instrumentalness`, `valance`, `loudness` are not strictly sonic-based but calculated based on an undisclosed formula/algorithm of Spotify, this level of accuracy is quite good. 
+
+
+
 ### Conclusions {-}
+
+The evaluation metric we got for the final model was 39.55% accuracy with a random forest of `mtry` = 2 and `min_n` = 70. This means that using our model, we were able to predict the correct genre given our metrics about 39.55% of the time. This isn't a great amount of accuracy, since it means 60% of the time we'll get something that is not correct. However, this model is accurate enough to be significant in predicting genre. The NIR for our data was 24.82%, which we got from the largest category in our data set, being the pop genre. If our model had guessed every single song was pop, the accuracy would have been 24.82%, so the model has to exceed this in order for it to have any significance in classifying genre. Our accuracy, 39.55% is 1.59 times more accurate than the NIR meaning it's at least significantly more accurate in predicting genre than straight up guessing would be. Still, it doesn't exceed 50%, meaning the model would be wrong more times than it is correct. 
+
+
+According to our random forest model's permutation measurement, the ranking of variable importance is as follows: danceability, energy, instrumentalness, acousticness, valence, and loudness. However, both the permutation and impurity measurements agree that the most important variable is `danceability`, and the two least important variable is `valance` and `loudness`. This means that there is little to no difference in loudness and valence (how positive or negative a track sounds) among the seven genres (blues, country, hip hop, jazz, pop, reggae, rock). To see how each of the features singles out different genres, we can look at the average values of the features that each genre demonstrates, as well as the violin plots:
+
 
 --------------------------
 
